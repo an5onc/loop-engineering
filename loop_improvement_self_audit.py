@@ -422,8 +422,9 @@ class LoopImprovementSelfAuditEngine:
                                "safe_application"),
             self._zero_flags_check(
                 "loop_improvement_patch_application_attempts",
-                ["commits_changes"],
-                "application attempts do not auto-commit",
+                ["applies_changes", "writes_files", "executes_commands",
+                 "commits_changes", "generates_patch"],
+                "application attempts do not apply changes, write files, execute commands, auto-commit, or generate patches",
                 "safe_application"),
             self._count_unchanged_check(
                 "loops", "application attempts do not create loops",

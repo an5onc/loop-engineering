@@ -124,6 +124,28 @@ class LoopImprovementSelfAuditTests(unittest.TestCase):
             self.assertIn(safety.status, {"PASS", "WARN"})
             self.assertIn("no Ollama dependency", _check_names(safety))
 
+    def test_safe_application_flags_detect_all_mutation_attempts(self):
+        import loop_improvement_self_audit as self_audit
+
+        with tempfile.TemporaryDirectory() as td:
+            conn = database.init_db(os.path.join(td, "self_audit.db"))
+            self.addCleanup(conn.close)
+            _insert_application_attempt_with_flags(
+                conn, applies_changes=1, writes_files=1,
+                executes_commands=1, commits_changes=0, generates_patch=1)
+
+            report = self_audit.LoopImprovementSelfAuditEngine(conn).build_report()
+            safe_application = _section(report, "safe_application")
+
+            self.assertEqual(safe_application.status, "FAIL")
+            failing = [
+                check for check in safe_application.checks
+                if check.name.startswith("application attempts do not apply changes")
+            ]
+            self.assertEqual(len(failing), 1)
+            self.assertEqual(failing[0].status, "FAIL")
+            self.assertIn("writes_files", failing[0].evidence)
+
     def test_final_readiness_calculation(self):
         import loop_improvement_self_audit as self_audit
 
@@ -194,6 +216,35 @@ def _check_names(section):
 
 def _count(conn, table):
     return conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+
+
+def _insert_application_attempt_with_flags(conn, **flags):
+    values = {
+        "applies_changes": 0,
+        "writes_files": 0,
+        "executes_commands": 0,
+        "commits_changes": 0,
+        "generates_patch": 0,
+    }
+    values.update(flags)
+    conn.execute(
+        "INSERT INTO loop_improvement_patch_application_attempts "
+        "(generated_at, approval_id, validation_id, patch_proposal_id, "
+        "application_plan_id, status, approval_confirmed, "
+        "rollback_snapshot_required, rollback_snapshot_present, "
+        "total_target_files, target_files_json, blockers_json, "
+        "safety_notes_json, required_next_controls_json, applies_changes, "
+        "writes_files, executes_commands, commits_changes, generates_patch) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (
+            "2026-06-29T00:00:00", 1, 1, 1, 1, "audit_fixture", 1, 1,
+            0, 1, '["README.md"]', "[]", "[]", "[]",
+            values["applies_changes"], values["writes_files"],
+            values["executes_commands"], values["commits_changes"],
+            values["generates_patch"],
+        ),
+    )
+    conn.commit()
 
 
 def _run_cli(args, cwd, env):
