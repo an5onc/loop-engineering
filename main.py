@@ -35,6 +35,7 @@ import loop_improvement_actions
 import loop_improvement_application_planner
 import loop_improvement_handoff
 import loop_improvement_handoff_review
+import loop_improvement_patch_approval
 import loop_improvement_patch_dry_run
 import loop_improvement_patch_proposals
 import loop_improvement_review
@@ -130,6 +131,9 @@ COMMANDS:
   --loop-improvement-patch-proposals / --loop-improvement-patch-proposal ID
   --validate-loop-improvement-patch-proposal PROPOSAL_ID [--save-report]
   --loop-improvement-patch-dry-runs / --loop-improvement-patch-dry-run ID
+  --request-loop-improvement-patch-approval VALIDATION_ID [--save-report]
+  --loop-improvement-patch-approvals / --loop-improvement-patch-approval ID
+  --set-loop-improvement-patch-approval-status ID pending|approved|rejected|cancelled ["notes"]
   --replay LOOP_ID            replay a prior loop
   --paused                    list paused external-agent loops
   --resume LOOP_ID [--external-completion-file PATH | --external-completion-text 'JSON'] [--commit]
@@ -5346,6 +5350,193 @@ def _cmd_loop_improvement_patch_dry_run(args) -> int:
     return 0
 
 
+def _latest_loop_improvement_patch_approval_id(conn):
+    rows = database.list_loop_improvement_patch_approvals(conn, 1)
+    return rows[0]["id"] if rows else None
+
+
+def _patch_approval_markdown_path_display(path):
+    if not path:
+        return "(none)"
+    if not loop_improvement_patch_approval.is_markdown_report_path(path):
+        return f"invalid patch approval report path metadata: {path}"
+    if not os.path.exists(path):
+        return f"missing patch approval report path: {path}"
+    return path
+
+
+def _print_loop_improvement_patch_approval(approval, approval_id=None,
+                                           markdown_path=None):
+    _rule("LOOP IMPROVEMENT PATCH APPROVAL")
+    if approval_id is not None:
+        print(f"Approval ID         : {approval_id}")
+    if markdown_path:
+        print(f"Markdown report     : {markdown_path}")
+    print(f"Generated at        : {approval.generated_at}")
+    print(f"Validation ID       : {approval.validation_id}")
+    print(f"Patch Proposal ID   : {approval.patch_proposal_id}")
+    print(f"Application Plan ID : {approval.application_plan_id}")
+    print(f"Status              : {approval.status}")
+    print(f"Approval required   : {approval.approval_required}")
+    print(f"Approved            : {approval.approved}")
+    print(f"Auto-approved       : {approval.auto_approved}")
+    print(f"Applies changes     : {approval.applies_changes}")
+    print(f"Generates patch     : {approval.generates_patch}")
+    print(f"Executes commands   : {approval.executes_commands}")
+    print(f"Requested by        : {approval.requested_by or '(none)'}")
+    print(f"Decided by          : {approval.decided_by or '(none)'}")
+    print(f"Decided at          : {approval.decided_at or '(none)'}")
+    print(f"Decision notes      : {approval.decision_notes or '(none)'}")
+    print(f"Summary             : {approval.approval_summary}")
+
+    _rule("REQUIRED CONTROLS")
+    for control in approval.required_controls:
+        print(f"- {control}")
+
+    _rule("SAFETY")
+    for note in approval.safety_notes:
+        print(f"- {note}")
+
+    _rule("STATUS COMMANDS")
+    if approval_id is not None:
+        for status in ("approved", "rejected", "cancelled"):
+            print(
+                f"- python3 main.py --set-loop-improvement-patch-approval-status "
+                f"{approval_id} {status} \"notes\""
+            )
+
+
+def _cmd_request_loop_improvement_patch_approval(args) -> int:
+    if not args:
+        print("ERROR: --request-loop-improvement-patch-approval needs a VALIDATION_ID",
+              file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    try:
+        validation_id = _parse_id_or_latest(
+            conn,
+            args[0],
+            _latest_loop_improvement_patch_dry_run_id,
+            "loop improvement patch dry-run validation",
+        )
+    except (ValueError, TypeError):
+        print("ERROR: VALIDATION_ID must be an integer or 'latest'", file=sys.stderr)
+        return 1
+    engine = loop_improvement_patch_approval.LoopImprovementPatchApprovalEngine(conn)
+    try:
+        approval = engine.create_approval_request(validation_id)
+        approval_id = engine.save_approval_request(approval)
+        markdown_path = None
+        if "--save-report" in args:
+            md = engine.save_markdown_report(approval_id, approval)
+            markdown_path = md.report_path
+    except ValueError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    except Exception as exc:
+        print(f"ERROR: loop improvement patch approval request failed: {exc}",
+              file=sys.stderr)
+        return 1
+    _print_loop_improvement_patch_approval(
+        approval, approval_id=approval_id, markdown_path=markdown_path)
+    return 0
+
+
+def _cmd_loop_improvement_patch_approvals(args) -> int:
+    limit = 20
+    if "--limit" in args:
+        try:
+            limit = int(_flag_val(args, "--limit"))
+        except (TypeError, ValueError):
+            print("ERROR: --limit needs an integer", file=sys.stderr)
+            return 1
+    conn = database.init_db()
+    rows = database.list_loop_improvement_patch_approvals(conn, limit)
+    _rule(f"LOOP IMPROVEMENT PATCH APPROVALS ({len(rows)})")
+    if not rows:
+        print("(none)")
+        return 0
+    for row in rows:
+        md = database.get_loop_improvement_patch_approval_markdown_report(
+            conn, row["id"])
+        print(f"#{row['id']}  {row['generated_at']}  "
+              f"validation={row['validation_id']} proposal={row['patch_proposal_id']} "
+              f"status={row['status']} approved={bool(row['approved'])} "
+              f"applies_changes={bool(row['applies_changes'])}")
+        if md is not None:
+            print(
+                "    markdown: "
+                f"{_patch_approval_markdown_path_display(md['report_path'])}"
+            )
+    return 0
+
+
+def _cmd_loop_improvement_patch_approval(args) -> int:
+    if not args:
+        print("ERROR: --loop-improvement-patch-approval needs an APPROVAL_ID",
+              file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    try:
+        approval_id = _parse_id_or_latest(
+            conn,
+            args[0],
+            _latest_loop_improvement_patch_approval_id,
+            "loop improvement patch approval",
+        )
+    except (ValueError, TypeError):
+        print("ERROR: APPROVAL_ID must be an integer or 'latest'", file=sys.stderr)
+        return 1
+    row = database.get_loop_improvement_patch_approval(conn, approval_id)
+    if row is None:
+        print(f"ERROR: no loop improvement patch approval {args[0]}",
+              file=sys.stderr)
+        return 1
+    approval = loop_improvement_patch_approval.approval_from_row(row)
+    md = database.get_loop_improvement_patch_approval_markdown_report(
+        conn, row["id"])
+    _print_loop_improvement_patch_approval(
+        approval,
+        approval_id=row["id"],
+        markdown_path=(
+            _patch_approval_markdown_path_display(md["report_path"])
+            if md else None
+        ),
+    )
+    return 0
+
+
+def _cmd_set_loop_improvement_patch_approval_status(args) -> int:
+    if len(args) < 2:
+        print("ERROR: --set-loop-improvement-patch-approval-status needs "
+              "APPROVAL_ID STATUS [notes]", file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    try:
+        approval_id = _parse_id_or_latest(
+            conn,
+            args[0],
+            _latest_loop_improvement_patch_approval_id,
+            "loop improvement patch approval",
+        )
+    except (ValueError, TypeError):
+        print("ERROR: APPROVAL_ID must be an integer or 'latest'", file=sys.stderr)
+        return 1
+    status = args[1]
+    notes = " ".join(args[2:]) if len(args) > 2 else ""
+    engine = loop_improvement_patch_approval.LoopImprovementPatchApprovalEngine(conn)
+    try:
+        approval = engine.update_approval_status(
+            approval_id, status, operator="operator", notes=notes)
+    except ValueError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    print(f"loop improvement patch approval {approval_id} status -> {approval.status}")
+    print("No patch was applied.")
+    print("No command was executed.")
+    return 0
+
+
 def _cmd_archive_external_job(args, unarchive=False) -> int:
     import external_agent_jobs as eaj
     if not args:
@@ -7147,6 +7338,14 @@ def main() -> int:
         return _cmd_loop_improvement_patch_dry_runs(args[1:])
     if args and args[0] == "--loop-improvement-patch-dry-run":
         return _cmd_loop_improvement_patch_dry_run(args[1:])
+    if args and args[0] == "--request-loop-improvement-patch-approval":
+        return _cmd_request_loop_improvement_patch_approval(args[1:])
+    if args and args[0] == "--loop-improvement-patch-approvals":
+        return _cmd_loop_improvement_patch_approvals(args[1:])
+    if args and args[0] == "--loop-improvement-patch-approval":
+        return _cmd_loop_improvement_patch_approval(args[1:])
+    if args and args[0] == "--set-loop-improvement-patch-approval-status":
+        return _cmd_set_loop_improvement_patch_approval_status(args[1:])
     if args and args[0] == "--replay":
         return _cmd_replay(args[1:])
     if args and args[0] == "--templates":

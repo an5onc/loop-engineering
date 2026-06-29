@@ -376,6 +376,42 @@ does not execute suggested commands, call Ollama, create loops, create external
 jobs, mutate handoffs, mutate improvement definitions, edit workspace files, or
 read protected file contents.
 
+# Loop Engineering - Stage 6.3
+
+## What's new in 6.3 - Human Approval for Patch Application
+
+Stage 6.3 records explicit human approval decisions for patch proposals that
+passed Stage 6.2 dry-run validation. A passing validation can create a pending
+approval request, and a separate status command can record `approved`,
+`rejected`, or `cancelled`. Approval recording is metadata only; even an
+`approved` status does not apply changes.
+
+```bash
+python3 main.py --request-loop-improvement-patch-approval latest
+python3 main.py --request-loop-improvement-patch-approval latest --save-report
+python3 main.py --loop-improvement-patch-approvals
+python3 main.py --loop-improvement-patch-approval latest
+python3 main.py --set-loop-improvement-patch-approval-status latest approved "reviewed manually"
+```
+
+Each approval request is saved in `loop_improvement_patch_approvals` with an
+event log in `loop_improvement_patch_approval_events`. Optional Markdown
+reports are written under:
+
+```
+loop_improvement_patch_approval_reports/loop_improvement_patch_approval_APPROVALID_YYYYMMDD_HHMMSS.md
+```
+
+Approval records always store `applies_changes=false`, `generates_patch=false`,
+`executes_commands=false`, and `auto_approved=false`. Failed dry-run validations
+cannot create approval requests.
+
+Safety: Stage 6.3 uses saved dry-run validation metadata only. It does not
+generate patches, write patch files, edit files, execute commands, call Ollama,
+create loops, create external jobs, commit, apply improvements, mutate
+framework definitions, or execute suggested commands. It writes only approval
+metadata and optional Markdown reports.
+
 # Loop Engineering - Stage 6.2
 
 ## What's new in 6.2 - Dry-Run Patch Validator
