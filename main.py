@@ -35,6 +35,7 @@ import loop_improvement_actions
 import loop_improvement_application_planner
 import loop_improvement_handoff
 import loop_improvement_handoff_review
+import loop_improvement_patch_proposals
 import loop_improvement_review
 import loop_improvement_stage5_audit
 import observatory_reports
@@ -124,6 +125,8 @@ COMMANDS:
   --loop-improvement-stage5-audits / --loop-improvement-stage5-audit-show ID
   --plan-loop-improvement-application SOURCE_ID [--source-type action|handoff|handoff_review] [--save-report]
   --loop-improvement-application-plans / --loop-improvement-application-plan ID
+  --generate-loop-improvement-patch-proposal PLAN_ID [--save-report]
+  --loop-improvement-patch-proposals / --loop-improvement-patch-proposal ID
   --replay LOOP_ID            replay a prior loop
   --paused                    list paused external-agent loops
   --resume LOOP_ID [--external-completion-file PATH | --external-completion-text 'JSON'] [--commit]
@@ -4995,6 +4998,185 @@ def _cmd_loop_improvement_application_plan(args) -> int:
     return 0
 
 
+def _latest_loop_improvement_patch_proposal_id(conn):
+    rows = database.list_loop_improvement_patch_proposals(conn, 1)
+    return rows[0]["id"] if rows else None
+
+
+def _patch_proposal_markdown_path_display(path):
+    if not path:
+        return "(none)"
+    if not loop_improvement_patch_proposals.is_markdown_report_path(path):
+        return f"invalid patch proposal report path metadata: {path}"
+    if not os.path.exists(path):
+        return f"missing patch proposal report path: {path}"
+    return path
+
+
+def _print_loop_improvement_patch_proposal(proposal, proposal_id=None,
+                                           markdown_path=None):
+    _rule("LOOP IMPROVEMENT PATCH PROPOSAL")
+    if proposal_id is not None:
+        print(f"Patch Proposal ID    : {proposal_id}")
+    if markdown_path:
+        print(f"Markdown report      : {markdown_path}")
+    print(f"Generated at         : {proposal.generated_at}")
+    print(f"Application Plan ID  : {proposal.application_plan_id}")
+    print(f"Status               : {proposal.status}")
+    print(f"Plan items           : {proposal.total_plan_items}")
+    print(f"Target files         : {proposal.total_target_files}")
+    print(f"Generates unified diff : {proposal.generates_unified_diff}")
+    print(f"Writes patch file    : {proposal.writes_patch_file}")
+    print(f"Applies changes        : {proposal.applies_changes}")
+    print(f"Reads file contents  : {proposal.reads_file_contents}")
+
+    _rule("METADATA-ONLY PATCH INTENT")
+    print(proposal.metadata_only_intent or "(none)")
+
+    _rule("TARGET FILES")
+    if not proposal.target_files:
+        print("(none)")
+    for path in proposal.target_files:
+        print(f"- {path}")
+
+    _rule("PATCH STRATEGY")
+    print(proposal.patch_strategy or "(none)")
+
+    _rule("ITEMS")
+    if not proposal.items:
+        print("(none)")
+    for item in proposal.items:
+        print(f"- {item.target_file}")
+        print(f"  target    : {item.target_type}/{item.target_name}")
+        print(f"  edit kind : {item.proposed_edit_kind}")
+        print(f"  intent    : {item.metadata_intent_summary}")
+
+    _rule("REQUIRED APPROVALS")
+    for approval in proposal.required_approvals:
+        print(f"- {approval}")
+
+    _rule("ROLLBACK REQUIREMENTS")
+    for requirement in proposal.rollback_requirements:
+        print(f"- {requirement}")
+
+    _rule("VALIDATION REQUIREMENTS")
+    for requirement in proposal.validation_requirements:
+        print(f"- {requirement}")
+
+    _rule("SAFETY")
+    for note in proposal.safety_notes:
+        print(f"- {note}")
+
+    _rule("RECOMMENDED NEXT COMMANDS")
+    for command in proposal.recommended_next_commands:
+        if proposal_id is not None:
+            command = command.replace("PROPOSAL_ID", str(proposal_id))
+        print(f"- {command}")
+
+
+def _cmd_generate_loop_improvement_patch_proposal(args) -> int:
+    if not args:
+        print("ERROR: --generate-loop-improvement-patch-proposal needs a PLAN_ID",
+              file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    try:
+        application_plan_id = _parse_id_or_latest(
+            conn,
+            args[0],
+            _latest_loop_improvement_application_plan_id,
+            "loop improvement application plan",
+        )
+    except (ValueError, TypeError):
+        print("ERROR: PLAN_ID must be an integer or 'latest'", file=sys.stderr)
+        return 1
+    engine = loop_improvement_patch_proposals.LoopImprovementPatchProposalGenerator(
+        conn)
+    try:
+        proposal = engine.build_proposal(application_plan_id)
+        proposal_id = engine.save_proposal(proposal)
+        markdown_path = None
+        if "--save-report" in args:
+            md = engine.save_markdown_report(proposal_id, proposal)
+            markdown_path = md.report_path
+    except ValueError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    except Exception as exc:
+        print(f"ERROR: loop improvement patch proposal failed: {exc}",
+              file=sys.stderr)
+        return 1
+    _print_loop_improvement_patch_proposal(
+        proposal, proposal_id=proposal_id, markdown_path=markdown_path)
+    return 0
+
+
+def _cmd_loop_improvement_patch_proposals(args) -> int:
+    limit = 20
+    if "--limit" in args:
+        try:
+            limit = int(_flag_val(args, "--limit"))
+        except (TypeError, ValueError):
+            print("ERROR: --limit needs an integer", file=sys.stderr)
+            return 1
+    conn = database.init_db()
+    rows = database.list_loop_improvement_patch_proposals(conn, limit)
+    _rule(f"LOOP IMPROVEMENT PATCH PROPOSALS ({len(rows)})")
+    if not rows:
+        print("(none)")
+        return 0
+    for row in rows:
+        md = database.get_loop_improvement_patch_proposal_markdown_report(
+            conn, row["id"])
+        print(f"#{row['id']}  {row['generated_at']}  "
+              f"application_plan={row['application_plan_id']} "
+              f"status={row['status']} files={row['total_target_files']} "
+              f"generates_unified_diff={bool(row['generates_unified_diff'])} "
+              f"applies_changes={bool(row['applies_changes'])}")
+        print(f"    targets: {row['target_files_json']}")
+        if md is not None:
+            print(
+                "    markdown: "
+                f"{_patch_proposal_markdown_path_display(md['report_path'])}"
+            )
+    return 0
+
+
+def _cmd_loop_improvement_patch_proposal(args) -> int:
+    if not args:
+        print("ERROR: --loop-improvement-patch-proposal needs a PROPOSAL_ID",
+              file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    try:
+        proposal_id = _parse_id_or_latest(
+            conn,
+            args[0],
+            _latest_loop_improvement_patch_proposal_id,
+            "loop improvement patch proposal",
+        )
+    except (ValueError, TypeError):
+        print("ERROR: PROPOSAL_ID must be an integer or 'latest'", file=sys.stderr)
+        return 1
+    row = database.get_loop_improvement_patch_proposal(conn, proposal_id)
+    if row is None:
+        print(f"ERROR: no loop improvement patch proposal {args[0]}",
+              file=sys.stderr)
+        return 1
+    proposal = loop_improvement_patch_proposals.proposal_from_row(row)
+    md = database.get_loop_improvement_patch_proposal_markdown_report(
+        conn, row["id"])
+    _print_loop_improvement_patch_proposal(
+        proposal,
+        proposal_id=row["id"],
+        markdown_path=(
+            _patch_proposal_markdown_path_display(md["report_path"])
+            if md else None
+        ),
+    )
+    return 0
+
+
 def _cmd_archive_external_job(args, unarchive=False) -> int:
     import external_agent_jobs as eaj
     if not args:
@@ -6784,6 +6966,12 @@ def main() -> int:
         return _cmd_loop_improvement_application_plans(args[1:])
     if args and args[0] == "--loop-improvement-application-plan":
         return _cmd_loop_improvement_application_plan(args[1:])
+    if args and args[0] == "--generate-loop-improvement-patch-proposal":
+        return _cmd_generate_loop_improvement_patch_proposal(args[1:])
+    if args and args[0] == "--loop-improvement-patch-proposals":
+        return _cmd_loop_improvement_patch_proposals(args[1:])
+    if args and args[0] == "--loop-improvement-patch-proposal":
+        return _cmd_loop_improvement_patch_proposal(args[1:])
     if args and args[0] == "--replay":
         return _cmd_replay(args[1:])
     if args and args[0] == "--templates":

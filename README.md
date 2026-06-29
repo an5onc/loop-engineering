@@ -376,6 +376,42 @@ does not execute suggested commands, call Ollama, create loops, create external
 jobs, mutate handoffs, mutate improvement definitions, edit workspace files, or
 read protected file contents.
 
+# Loop Engineering - Stage 6.1
+
+## What's new in 6.1 - Patch Proposal Generator
+
+Stage 6.1 converts a saved Stage 6.0 application plan into a metadata-only
+patch proposal. It breaks the application plan into per-target-file patch
+intent items and records the strategy, required approvals, rollback
+requirements, validation requirements, and safety notes needed before any later
+stage can generate a real patch.
+
+```bash
+python3 main.py --generate-loop-improvement-patch-proposal latest
+python3 main.py --generate-loop-improvement-patch-proposal latest --save-report
+python3 main.py --loop-improvement-patch-proposals
+python3 main.py --loop-improvement-patch-proposal latest
+```
+
+Each patch proposal is saved in `loop_improvement_patch_proposals` with child
+rows in `loop_improvement_patch_proposal_items` and an event log in
+`loop_improvement_patch_proposal_events`. Optional Markdown reports are written
+under:
+
+```
+loop_improvement_patch_proposal_reports/loop_improvement_patch_proposal_PROPOSALID_YYYYMMDD_HHMMSS.md
+```
+
+Patch proposals always record `generates_unified_diff=false`,
+`writes_patch_file=false`, `applies_changes=false`, and
+`reads_file_contents=false`.
+
+Safety: Stage 6.1 uses saved application-plan metadata only. It does not read
+source file contents, generate unified diffs, write patch files, edit files,
+execute commands, call Ollama, create loops, create external jobs, commit,
+apply improvements, mutate framework definitions, or execute suggested
+commands. It writes only patch-proposal metadata and optional Markdown reports.
+
 # Loop Engineering - Stage 6.0
 
 ## What's new in 6.0 - Approved Improvement Application Planner

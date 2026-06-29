@@ -871,6 +871,71 @@ CREATE TABLE IF NOT EXISTS loop_improvement_application_plan_markdown_reports (
     FOREIGN KEY (application_plan_id) REFERENCES loop_improvement_application_plans(id)
 );
 
+CREATE TABLE IF NOT EXISTS loop_improvement_patch_proposals (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    generated_at TEXT,
+    application_plan_id INTEGER NOT NULL,
+    status TEXT,
+    total_plan_items INTEGER,
+    total_target_files INTEGER,
+    target_files_json TEXT,
+    patch_strategy TEXT,
+    metadata_only_intent TEXT,
+    required_approvals_json TEXT,
+    rollback_requirements_json TEXT,
+    validation_requirements_json TEXT,
+    safety_notes_json TEXT,
+    recommended_next_commands_json TEXT,
+    items_json TEXT,
+    generates_unified_diff INTEGER,
+    writes_patch_file INTEGER,
+    applies_changes INTEGER,
+    reads_file_contents INTEGER,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (application_plan_id) REFERENCES loop_improvement_application_plans(id)
+);
+
+CREATE TABLE IF NOT EXISTS loop_improvement_patch_proposal_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    patch_proposal_id INTEGER NOT NULL,
+    application_plan_id INTEGER NOT NULL,
+    source_action_id INTEGER,
+    source_handoff_id INTEGER,
+    source_proposal_id INTEGER,
+    source_plan_id INTEGER,
+    target_type TEXT,
+    target_name TEXT,
+    target_file TEXT,
+    proposed_edit_kind TEXT,
+    metadata_intent_summary TEXT,
+    safety_constraints_json TEXT,
+    validation_requirements_json TEXT,
+    rollback_requirements_json TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (patch_proposal_id) REFERENCES loop_improvement_patch_proposals(id),
+    FOREIGN KEY (application_plan_id) REFERENCES loop_improvement_application_plans(id)
+);
+
+CREATE TABLE IF NOT EXISTS loop_improvement_patch_proposal_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    patch_proposal_id INTEGER NOT NULL,
+    event_type TEXT,
+    details_json TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (patch_proposal_id) REFERENCES loop_improvement_patch_proposals(id)
+);
+
+CREATE TABLE IF NOT EXISTS loop_improvement_patch_proposal_markdown_reports (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    patch_proposal_id INTEGER NOT NULL,
+    report_path TEXT,
+    report_format TEXT,
+    content_hash TEXT,
+    bytes_written INTEGER,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (patch_proposal_id) REFERENCES loop_improvement_patch_proposals(id)
+);
+
 CREATE TABLE IF NOT EXISTS project_workspaces (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT UNIQUE,
@@ -2817,6 +2882,129 @@ def get_loop_improvement_application_plan_markdown_report(conn, application_plan
 def list_loop_improvement_application_plan_markdown_reports(conn, limit=20):
     return conn.execute(
         "SELECT * FROM loop_improvement_application_plan_markdown_reports "
+        "ORDER BY id DESC LIMIT ?",
+        (limit,),
+    ).fetchall()
+
+
+def save_loop_improvement_patch_proposal(
+        conn, generated_at, application_plan_id, status, total_plan_items,
+        total_target_files, target_files_json, patch_strategy,
+        metadata_only_intent, required_approvals_json,
+        rollback_requirements_json, validation_requirements_json,
+        safety_notes_json, recommended_next_commands_json, items_json,
+        generates_unified_diff, writes_patch_file, applies_changes,
+        reads_file_contents) -> int:
+    cur = conn.execute(
+        "INSERT INTO loop_improvement_patch_proposals "
+        "(generated_at, application_plan_id, status, total_plan_items, "
+        "total_target_files, target_files_json, patch_strategy, "
+        "metadata_only_intent, required_approvals_json, "
+        "rollback_requirements_json, validation_requirements_json, "
+        "safety_notes_json, recommended_next_commands_json, items_json, "
+        "generates_unified_diff, writes_patch_file, applies_changes, "
+        "reads_file_contents) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        (generated_at, application_plan_id, status, total_plan_items,
+         total_target_files, target_files_json, patch_strategy,
+         metadata_only_intent, required_approvals_json,
+         rollback_requirements_json, validation_requirements_json,
+         safety_notes_json, recommended_next_commands_json, items_json,
+         1 if generates_unified_diff else 0, 1 if writes_patch_file else 0,
+         1 if applies_changes else 0, 1 if reads_file_contents else 0),
+    )
+    conn.commit()
+    return cur.lastrowid
+
+
+def get_loop_improvement_patch_proposal(conn, patch_proposal_id):
+    return conn.execute(
+        "SELECT * FROM loop_improvement_patch_proposals WHERE id=?",
+        (patch_proposal_id,),
+    ).fetchone()
+
+
+def list_loop_improvement_patch_proposals(conn, limit=20):
+    return conn.execute(
+        "SELECT * FROM loop_improvement_patch_proposals ORDER BY id DESC LIMIT ?",
+        (limit,),
+    ).fetchall()
+
+
+def save_loop_improvement_patch_proposal_item(
+        conn, patch_proposal_id, application_plan_id, source_action_id,
+        source_handoff_id, source_proposal_id, source_plan_id, target_type,
+        target_name, target_file, proposed_edit_kind, metadata_intent_summary,
+        safety_constraints_json, validation_requirements_json,
+        rollback_requirements_json) -> int:
+    cur = conn.execute(
+        "INSERT INTO loop_improvement_patch_proposal_items "
+        "(patch_proposal_id, application_plan_id, source_action_id, "
+        "source_handoff_id, source_proposal_id, source_plan_id, target_type, "
+        "target_name, target_file, proposed_edit_kind, metadata_intent_summary, "
+        "safety_constraints_json, validation_requirements_json, "
+        "rollback_requirements_json) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        (patch_proposal_id, application_plan_id, source_action_id,
+         source_handoff_id, source_proposal_id, source_plan_id, target_type,
+         target_name, target_file, proposed_edit_kind, metadata_intent_summary,
+         safety_constraints_json, validation_requirements_json,
+         rollback_requirements_json),
+    )
+    conn.commit()
+    return cur.lastrowid
+
+
+def list_loop_improvement_patch_proposal_items(conn, patch_proposal_id):
+    return conn.execute(
+        "SELECT * FROM loop_improvement_patch_proposal_items "
+        "WHERE patch_proposal_id=? ORDER BY id",
+        (patch_proposal_id,),
+    ).fetchall()
+
+
+def save_loop_improvement_patch_proposal_event(
+        conn, patch_proposal_id, event_type, details_json="{}") -> int:
+    cur = conn.execute(
+        "INSERT INTO loop_improvement_patch_proposal_events "
+        "(patch_proposal_id, event_type, details_json) VALUES (?,?,?)",
+        (patch_proposal_id, event_type, details_json),
+    )
+    conn.commit()
+    return cur.lastrowid
+
+
+def get_loop_improvement_patch_proposal_events(conn, patch_proposal_id):
+    return conn.execute(
+        "SELECT * FROM loop_improvement_patch_proposal_events "
+        "WHERE patch_proposal_id=? ORDER BY id",
+        (patch_proposal_id,),
+    ).fetchall()
+
+
+def save_loop_improvement_patch_proposal_markdown_report(
+        conn, patch_proposal_id, report_path, report_format, content_hash,
+        bytes_written) -> int:
+    cur = conn.execute(
+        "INSERT INTO loop_improvement_patch_proposal_markdown_reports "
+        "(patch_proposal_id, report_path, report_format, content_hash, bytes_written) "
+        "VALUES (?,?,?,?,?)",
+        (patch_proposal_id, report_path, report_format, content_hash, bytes_written),
+    )
+    conn.commit()
+    return cur.lastrowid
+
+
+def get_loop_improvement_patch_proposal_markdown_report(conn, patch_proposal_id):
+    return conn.execute(
+        "SELECT * FROM loop_improvement_patch_proposal_markdown_reports "
+        "WHERE patch_proposal_id=? ORDER BY id DESC LIMIT 1",
+        (patch_proposal_id,),
+    ).fetchone()
+
+
+def list_loop_improvement_patch_proposal_markdown_reports(conn, limit=20):
+    return conn.execute(
+        "SELECT * FROM loop_improvement_patch_proposal_markdown_reports "
         "ORDER BY id DESC LIMIT ?",
         (limit,),
     ).fetchall()
