@@ -21,6 +21,7 @@ loop_improvement_patch_proposal_reports/
 loop_improvement_patch_dry_run_reports/
 loop_improvement_patch_approval_reports/
 loop_improvement_patch_application_reports/
+loop_improvement_rollback_snapshot_reports/
 external_agent_handoffs/
 external_agent_jobs/
 external_batch_reports/

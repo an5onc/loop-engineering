@@ -376,6 +376,42 @@ does not execute suggested commands, call Ollama, create loops, create external
 jobs, mutate handoffs, mutate improvement definitions, edit workspace files, or
 read protected file contents.
 
+# Loop Engineering - Stage 6.5
+
+## What's new in 6.5 - Rollback Snapshot and Restore Preview
+
+Stage 6.5 creates rollback snapshots for guarded Stage 6.4 application
+attempts. Snapshot creation reads only the allowlisted target files named by the
+application attempt, stores their content in the local ignored SQLite database,
+and records a manifest with file existence, size, and SHA-256 hashes. Markdown
+reports include metadata and hashes only, not file contents.
+
+```bash
+python3 main.py --create-loop-improvement-rollback-snapshot latest
+python3 main.py --create-loop-improvement-rollback-snapshot latest --save-report
+python3 main.py --loop-improvement-rollback-snapshots
+python3 main.py --loop-improvement-rollback-snapshot latest
+python3 main.py --preview-loop-improvement-rollback-restore latest
+```
+
+Each snapshot is saved in `loop_improvement_rollback_snapshots`, with per-file
+entries in `loop_improvement_rollback_snapshot_files` and an event log in
+`loop_improvement_rollback_snapshot_events`. Optional Markdown reports are
+written under:
+
+```
+loop_improvement_rollback_snapshot_reports/loop_improvement_rollback_snapshot_SNAPSHOTID_YYYYMMDD_HHMMSS.md
+```
+
+Snapshots always record `applies_changes=false`, `restores_files=false`,
+`executes_commands=false`, and `commits_changes=false`. Restore preview records
+an audit event but does not restore files.
+
+Safety: Stage 6.5 blocks absolute paths, path traversal, and protected path
+fragments. It does not generate patches, write target files, restore files,
+execute commands, call Ollama, create loops, create external jobs, commit, apply
+improvements, mutate framework definitions, or execute suggested commands.
+
 # Loop Engineering - Stage 6.4
 
 ## What's new in 6.4 - Safe Patch Application Engine

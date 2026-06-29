@@ -1081,6 +1081,62 @@ CREATE TABLE IF NOT EXISTS loop_improvement_patch_application_markdown_reports (
     FOREIGN KEY (attempt_id) REFERENCES loop_improvement_patch_application_attempts(id)
 );
 
+CREATE TABLE IF NOT EXISTS loop_improvement_rollback_snapshots (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    generated_at TEXT,
+    application_attempt_id INTEGER NOT NULL,
+    approval_id INTEGER,
+    patch_proposal_id INTEGER,
+    application_plan_id INTEGER,
+    status TEXT,
+    total_files INTEGER,
+    captured_files INTEGER,
+    missing_files INTEGER,
+    target_files_json TEXT,
+    manifest_json TEXT,
+    safety_notes_json TEXT,
+    restore_instructions_json TEXT,
+    applies_changes INTEGER,
+    restores_files INTEGER,
+    executes_commands INTEGER,
+    commits_changes INTEGER,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (application_attempt_id) REFERENCES loop_improvement_patch_application_attempts(id)
+);
+
+CREATE TABLE IF NOT EXISTS loop_improvement_rollback_snapshot_files (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    snapshot_id INTEGER NOT NULL,
+    target_file TEXT,
+    file_exists INTEGER,
+    size_bytes INTEGER,
+    content_sha256 TEXT,
+    content_base64 TEXT,
+    encoding TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (snapshot_id) REFERENCES loop_improvement_rollback_snapshots(id)
+);
+
+CREATE TABLE IF NOT EXISTS loop_improvement_rollback_snapshot_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    snapshot_id INTEGER NOT NULL,
+    event_type TEXT,
+    details_json TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (snapshot_id) REFERENCES loop_improvement_rollback_snapshots(id)
+);
+
+CREATE TABLE IF NOT EXISTS loop_improvement_rollback_snapshot_markdown_reports (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    snapshot_id INTEGER NOT NULL,
+    report_path TEXT,
+    report_format TEXT,
+    content_hash TEXT,
+    bytes_written INTEGER,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (snapshot_id) REFERENCES loop_improvement_rollback_snapshots(id)
+);
+
 CREATE TABLE IF NOT EXISTS project_workspaces (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT UNIQUE,
@@ -3454,6 +3510,115 @@ def get_loop_improvement_patch_application_markdown_report(conn, attempt_id):
 def list_loop_improvement_patch_application_markdown_reports(conn, limit=20):
     return conn.execute(
         "SELECT * FROM loop_improvement_patch_application_markdown_reports "
+        "ORDER BY id DESC LIMIT ?",
+        (limit,),
+    ).fetchall()
+
+
+def save_loop_improvement_rollback_snapshot(
+        conn, generated_at, application_attempt_id, approval_id,
+        patch_proposal_id, application_plan_id, status, total_files,
+        captured_files, missing_files, target_files_json, manifest_json,
+        safety_notes_json, restore_instructions_json, applies_changes,
+        restores_files, executes_commands, commits_changes) -> int:
+    cur = conn.execute(
+        "INSERT INTO loop_improvement_rollback_snapshots "
+        "(generated_at, application_attempt_id, approval_id, patch_proposal_id, "
+        "application_plan_id, status, total_files, captured_files, missing_files, "
+        "target_files_json, manifest_json, safety_notes_json, "
+        "restore_instructions_json, applies_changes, restores_files, "
+        "executes_commands, commits_changes) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        (generated_at, application_attempt_id, approval_id, patch_proposal_id,
+         application_plan_id, status, total_files, captured_files, missing_files,
+         target_files_json, manifest_json, safety_notes_json,
+         restore_instructions_json, 1 if applies_changes else 0,
+         1 if restores_files else 0, 1 if executes_commands else 0,
+         1 if commits_changes else 0),
+    )
+    conn.commit()
+    return cur.lastrowid
+
+
+def get_loop_improvement_rollback_snapshot(conn, snapshot_id):
+    return conn.execute(
+        "SELECT * FROM loop_improvement_rollback_snapshots WHERE id=?",
+        (snapshot_id,),
+    ).fetchone()
+
+
+def list_loop_improvement_rollback_snapshots(conn, limit=20):
+    return conn.execute(
+        "SELECT * FROM loop_improvement_rollback_snapshots ORDER BY id DESC LIMIT ?",
+        (limit,),
+    ).fetchall()
+
+
+def save_loop_improvement_rollback_snapshot_file(
+        conn, snapshot_id, target_file, file_exists, size_bytes,
+        content_sha256, content_base64, encoding) -> int:
+    cur = conn.execute(
+        "INSERT INTO loop_improvement_rollback_snapshot_files "
+        "(snapshot_id, target_file, file_exists, size_bytes, content_sha256, "
+        "content_base64, encoding) VALUES (?,?,?,?,?,?,?)",
+        (snapshot_id, target_file, 1 if file_exists else 0, size_bytes,
+         content_sha256, content_base64, encoding),
+    )
+    conn.commit()
+    return cur.lastrowid
+
+
+def list_loop_improvement_rollback_snapshot_files(conn, snapshot_id):
+    return conn.execute(
+        "SELECT * FROM loop_improvement_rollback_snapshot_files "
+        "WHERE snapshot_id=? ORDER BY id",
+        (snapshot_id,),
+    ).fetchall()
+
+
+def save_loop_improvement_rollback_snapshot_event(
+        conn, snapshot_id, event_type, details_json="{}") -> int:
+    cur = conn.execute(
+        "INSERT INTO loop_improvement_rollback_snapshot_events "
+        "(snapshot_id, event_type, details_json) VALUES (?,?,?)",
+        (snapshot_id, event_type, details_json),
+    )
+    conn.commit()
+    return cur.lastrowid
+
+
+def get_loop_improvement_rollback_snapshot_events(conn, snapshot_id):
+    return conn.execute(
+        "SELECT * FROM loop_improvement_rollback_snapshot_events "
+        "WHERE snapshot_id=? ORDER BY id",
+        (snapshot_id,),
+    ).fetchall()
+
+
+def save_loop_improvement_rollback_snapshot_markdown_report(
+        conn, snapshot_id, report_path, report_format, content_hash,
+        bytes_written) -> int:
+    cur = conn.execute(
+        "INSERT INTO loop_improvement_rollback_snapshot_markdown_reports "
+        "(snapshot_id, report_path, report_format, content_hash, bytes_written) "
+        "VALUES (?,?,?,?,?)",
+        (snapshot_id, report_path, report_format, content_hash, bytes_written),
+    )
+    conn.commit()
+    return cur.lastrowid
+
+
+def get_loop_improvement_rollback_snapshot_markdown_report(conn, snapshot_id):
+    return conn.execute(
+        "SELECT * FROM loop_improvement_rollback_snapshot_markdown_reports "
+        "WHERE snapshot_id=? ORDER BY id DESC LIMIT 1",
+        (snapshot_id,),
+    ).fetchone()
+
+
+def list_loop_improvement_rollback_snapshot_markdown_reports(conn, limit=20):
+    return conn.execute(
+        "SELECT * FROM loop_improvement_rollback_snapshot_markdown_reports "
         "ORDER BY id DESC LIMIT ?",
         (limit,),
     ).fetchall()

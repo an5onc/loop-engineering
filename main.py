@@ -41,6 +41,7 @@ import loop_improvement_patch_dry_run
 import loop_improvement_patch_proposals
 import loop_improvement_review
 import loop_improvement_stage5_audit
+import loop_improvement_rollback_snapshot
 import observatory_reports
 import observatory_remediation
 import observatory_stage4_audit
@@ -137,6 +138,9 @@ COMMANDS:
   --set-loop-improvement-patch-approval-status ID pending|approved|rejected|cancelled ["notes"]
   --attempt-loop-improvement-patch-application APPROVAL_ID [--save-report]
   --loop-improvement-patch-application-attempts / --loop-improvement-patch-application-attempt ID
+  --create-loop-improvement-rollback-snapshot ATTEMPT_ID [--save-report]
+  --loop-improvement-rollback-snapshots / --loop-improvement-rollback-snapshot ID
+  --preview-loop-improvement-rollback-restore SNAPSHOT_ID
   --replay LOOP_ID            replay a prior loop
   --paused                    list paused external-agent loops
   --resume LOOP_ID [--external-completion-file PATH | --external-completion-text 'JSON'] [--commit]
@@ -5701,6 +5705,210 @@ def _cmd_loop_improvement_patch_application_attempt(args) -> int:
     return 0
 
 
+def _latest_loop_improvement_rollback_snapshot_id(conn):
+    rows = database.list_loop_improvement_rollback_snapshots(conn, 1)
+    return rows[0]["id"] if rows else None
+
+
+def _rollback_snapshot_markdown_path_display(path):
+    if not path:
+        return "(none)"
+    if not loop_improvement_rollback_snapshot.is_markdown_report_path(path):
+        return f"invalid rollback snapshot report path metadata: {path}"
+    if not os.path.exists(path):
+        return f"missing rollback snapshot report path: {path}"
+    return path
+
+
+def _print_loop_improvement_rollback_snapshot(snapshot, snapshot_id=None,
+                                              markdown_path=None):
+    _rule("LOOP IMPROVEMENT ROLLBACK SNAPSHOT")
+    if snapshot_id is not None:
+        print(f"Snapshot ID         : {snapshot_id}")
+    if markdown_path:
+        print(f"Markdown report     : {markdown_path}")
+    print(f"Generated at        : {snapshot.generated_at}")
+    print(f"Application attempt : {snapshot.application_attempt_id}")
+    print(f"Approval ID         : {snapshot.approval_id}")
+    print(f"Patch Proposal ID   : {snapshot.patch_proposal_id}")
+    print(f"Application Plan ID : {snapshot.application_plan_id}")
+    print(f"Status              : {snapshot.status}")
+    print(f"Total files         : {snapshot.total_files}")
+    print(f"Captured files      : {snapshot.captured_files}")
+    print(f"Missing files       : {snapshot.missing_files}")
+    print(f"Applies changes     : {snapshot.applies_changes}")
+    print(f"Restores files      : {snapshot.restores_files}")
+    print(f"Executes commands   : {snapshot.executes_commands}")
+    print(f"Commits changes     : {snapshot.commits_changes}")
+
+    _rule("SNAPSHOT FILES")
+    if not snapshot.files:
+        print("(none)")
+    for item in snapshot.files:
+        print(f"- {item.target_file}")
+        print(f"  exists : {item.file_exists}")
+        print(f"  size   : {item.size_bytes}")
+        print(f"  sha256 : {item.content_sha256 or '(none)'}")
+
+    _rule("RESTORE INSTRUCTIONS")
+    for instruction in snapshot.restore_instructions:
+        print(f"- {instruction}")
+
+    _rule("SAFETY")
+    for note in snapshot.safety_notes:
+        print(f"- {note}")
+
+
+def _print_loop_improvement_rollback_restore_preview(preview):
+    _rule("LOOP IMPROVEMENT ROLLBACK RESTORE PREVIEW")
+    print(f"Snapshot ID         : {preview.snapshot_id}")
+    print(f"Status              : {preview.status}")
+    print(f"Total files         : {preview.total_files}")
+    print(f"Missing files       : {preview.missing_files}")
+    print(f"Restores files      : {preview.restores_files}")
+    print(f"Applies changes     : {preview.applies_changes}")
+    print(f"Executes commands   : {preview.executes_commands}")
+    _rule("TARGET FILES")
+    if not preview.target_files:
+        print("(none)")
+    for path in preview.target_files:
+        print(f"- {path}")
+    _rule("SAFETY")
+    for note in preview.safety_notes:
+        print(f"- {note}")
+
+
+def _cmd_create_loop_improvement_rollback_snapshot(args) -> int:
+    if not args:
+        print("ERROR: --create-loop-improvement-rollback-snapshot needs an ATTEMPT_ID",
+              file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    try:
+        attempt_id = _parse_id_or_latest(
+            conn,
+            args[0],
+            _latest_loop_improvement_patch_application_attempt_id,
+            "loop improvement patch application attempt",
+        )
+    except (ValueError, TypeError):
+        print("ERROR: ATTEMPT_ID must be an integer or 'latest'", file=sys.stderr)
+        return 1
+    engine = loop_improvement_rollback_snapshot.LoopImprovementRollbackSnapshotEngine(
+        conn)
+    try:
+        snapshot = engine.create_snapshot(attempt_id)
+        snapshot_id = engine.save_snapshot(snapshot)
+        markdown_path = None
+        if "--save-report" in args:
+            md = engine.save_markdown_report(snapshot_id, snapshot)
+            markdown_path = md.report_path
+    except ValueError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    except Exception as exc:
+        print(f"ERROR: loop improvement rollback snapshot failed: {exc}",
+              file=sys.stderr)
+        return 1
+    _print_loop_improvement_rollback_snapshot(
+        snapshot, snapshot_id=snapshot_id, markdown_path=markdown_path)
+    return 0
+
+
+def _cmd_loop_improvement_rollback_snapshots(args) -> int:
+    limit = 20
+    if "--limit" in args:
+        try:
+            limit = int(_flag_val(args, "--limit"))
+        except (TypeError, ValueError):
+            print("ERROR: --limit needs an integer", file=sys.stderr)
+            return 1
+    conn = database.init_db()
+    rows = database.list_loop_improvement_rollback_snapshots(conn, limit)
+    _rule(f"LOOP IMPROVEMENT ROLLBACK SNAPSHOTS ({len(rows)})")
+    if not rows:
+        print("(none)")
+        return 0
+    for row in rows:
+        md = database.get_loop_improvement_rollback_snapshot_markdown_report(
+            conn, row["id"])
+        print(f"#{row['id']}  {row['generated_at']}  "
+              f"attempt={row['application_attempt_id']} status={row['status']} "
+              f"captured={row['captured_files']}/{row['total_files']} "
+              f"restores_files={bool(row['restores_files'])}")
+        if md is not None:
+            print(
+                "    markdown: "
+                f"{_rollback_snapshot_markdown_path_display(md['report_path'])}"
+            )
+    return 0
+
+
+def _cmd_loop_improvement_rollback_snapshot(args) -> int:
+    if not args:
+        print("ERROR: --loop-improvement-rollback-snapshot needs a SNAPSHOT_ID",
+              file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    try:
+        snapshot_id = _parse_id_or_latest(
+            conn,
+            args[0],
+            _latest_loop_improvement_rollback_snapshot_id,
+            "loop improvement rollback snapshot",
+        )
+    except (ValueError, TypeError):
+        print("ERROR: SNAPSHOT_ID must be an integer or 'latest'", file=sys.stderr)
+        return 1
+    row = database.get_loop_improvement_rollback_snapshot(conn, snapshot_id)
+    if row is None:
+        print(f"ERROR: no loop improvement rollback snapshot {args[0]}",
+              file=sys.stderr)
+        return 1
+    snapshot = loop_improvement_rollback_snapshot.snapshot_from_row(row)
+    files = database.list_loop_improvement_rollback_snapshot_files(conn, snapshot_id)
+    snapshot.files = [
+        loop_improvement_rollback_snapshot.snapshot_file_from_row(f) for f in files
+    ]
+    md = database.get_loop_improvement_rollback_snapshot_markdown_report(
+        conn, row["id"])
+    _print_loop_improvement_rollback_snapshot(
+        snapshot,
+        snapshot_id=row["id"],
+        markdown_path=(
+            _rollback_snapshot_markdown_path_display(md["report_path"])
+            if md else None
+        ),
+    )
+    return 0
+
+
+def _cmd_preview_loop_improvement_rollback_restore(args) -> int:
+    if not args:
+        print("ERROR: --preview-loop-improvement-rollback-restore needs a SNAPSHOT_ID",
+              file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    try:
+        snapshot_id = _parse_id_or_latest(
+            conn,
+            args[0],
+            _latest_loop_improvement_rollback_snapshot_id,
+            "loop improvement rollback snapshot",
+        )
+    except (ValueError, TypeError):
+        print("ERROR: SNAPSHOT_ID must be an integer or 'latest'", file=sys.stderr)
+        return 1
+    try:
+        preview = loop_improvement_rollback_snapshot.LoopImprovementRollbackSnapshotEngine(
+            conn).preview_restore(snapshot_id)
+    except ValueError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    _print_loop_improvement_rollback_restore_preview(preview)
+    return 0
+
+
 def _cmd_archive_external_job(args, unarchive=False) -> int:
     import external_agent_jobs as eaj
     if not args:
@@ -7516,6 +7724,14 @@ def main() -> int:
         return _cmd_loop_improvement_patch_application_attempts(args[1:])
     if args and args[0] == "--loop-improvement-patch-application-attempt":
         return _cmd_loop_improvement_patch_application_attempt(args[1:])
+    if args and args[0] == "--create-loop-improvement-rollback-snapshot":
+        return _cmd_create_loop_improvement_rollback_snapshot(args[1:])
+    if args and args[0] == "--loop-improvement-rollback-snapshots":
+        return _cmd_loop_improvement_rollback_snapshots(args[1:])
+    if args and args[0] == "--loop-improvement-rollback-snapshot":
+        return _cmd_loop_improvement_rollback_snapshot(args[1:])
+    if args and args[0] == "--preview-loop-improvement-rollback-restore":
+        return _cmd_preview_loop_improvement_rollback_restore(args[1:])
     if args and args[0] == "--replay":
         return _cmd_replay(args[1:])
     if args and args[0] == "--templates":
