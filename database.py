@@ -1036,6 +1036,51 @@ CREATE TABLE IF NOT EXISTS loop_improvement_patch_approval_markdown_reports (
     FOREIGN KEY (approval_id) REFERENCES loop_improvement_patch_approvals(id)
 );
 
+CREATE TABLE IF NOT EXISTS loop_improvement_patch_application_attempts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    generated_at TEXT,
+    approval_id INTEGER NOT NULL,
+    validation_id INTEGER,
+    patch_proposal_id INTEGER,
+    application_plan_id INTEGER,
+    status TEXT,
+    approval_confirmed INTEGER,
+    rollback_snapshot_required INTEGER,
+    rollback_snapshot_present INTEGER,
+    total_target_files INTEGER,
+    target_files_json TEXT,
+    blockers_json TEXT,
+    safety_notes_json TEXT,
+    required_next_controls_json TEXT,
+    applies_changes INTEGER,
+    writes_files INTEGER,
+    executes_commands INTEGER,
+    commits_changes INTEGER,
+    generates_patch INTEGER,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (approval_id) REFERENCES loop_improvement_patch_approvals(id)
+);
+
+CREATE TABLE IF NOT EXISTS loop_improvement_patch_application_attempt_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    attempt_id INTEGER NOT NULL,
+    event_type TEXT,
+    details_json TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (attempt_id) REFERENCES loop_improvement_patch_application_attempts(id)
+);
+
+CREATE TABLE IF NOT EXISTS loop_improvement_patch_application_markdown_reports (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    attempt_id INTEGER NOT NULL,
+    report_path TEXT,
+    report_format TEXT,
+    content_hash TEXT,
+    bytes_written INTEGER,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (attempt_id) REFERENCES loop_improvement_patch_application_attempts(id)
+);
+
 CREATE TABLE IF NOT EXISTS project_workspaces (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT UNIQUE,
@@ -3317,6 +3362,98 @@ def get_loop_improvement_patch_approval_markdown_report(conn, approval_id):
 def list_loop_improvement_patch_approval_markdown_reports(conn, limit=20):
     return conn.execute(
         "SELECT * FROM loop_improvement_patch_approval_markdown_reports "
+        "ORDER BY id DESC LIMIT ?",
+        (limit,),
+    ).fetchall()
+
+
+def save_loop_improvement_patch_application_attempt(
+        conn, generated_at, approval_id, validation_id, patch_proposal_id,
+        application_plan_id, status, approval_confirmed,
+        rollback_snapshot_required, rollback_snapshot_present,
+        total_target_files, target_files_json, blockers_json,
+        safety_notes_json, required_next_controls_json, applies_changes,
+        writes_files, executes_commands, commits_changes, generates_patch) -> int:
+    cur = conn.execute(
+        "INSERT INTO loop_improvement_patch_application_attempts "
+        "(generated_at, approval_id, validation_id, patch_proposal_id, "
+        "application_plan_id, status, approval_confirmed, "
+        "rollback_snapshot_required, rollback_snapshot_present, "
+        "total_target_files, target_files_json, blockers_json, safety_notes_json, "
+        "required_next_controls_json, applies_changes, writes_files, "
+        "executes_commands, commits_changes, generates_patch) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        (generated_at, approval_id, validation_id, patch_proposal_id,
+         application_plan_id, status, 1 if approval_confirmed else 0,
+         1 if rollback_snapshot_required else 0,
+         1 if rollback_snapshot_present else 0, total_target_files,
+         target_files_json, blockers_json, safety_notes_json,
+         required_next_controls_json, 1 if applies_changes else 0,
+         1 if writes_files else 0, 1 if executes_commands else 0,
+         1 if commits_changes else 0, 1 if generates_patch else 0),
+    )
+    conn.commit()
+    return cur.lastrowid
+
+
+def get_loop_improvement_patch_application_attempt(conn, attempt_id):
+    return conn.execute(
+        "SELECT * FROM loop_improvement_patch_application_attempts WHERE id=?",
+        (attempt_id,),
+    ).fetchone()
+
+
+def list_loop_improvement_patch_application_attempts(conn, limit=20):
+    return conn.execute(
+        "SELECT * FROM loop_improvement_patch_application_attempts "
+        "ORDER BY id DESC LIMIT ?",
+        (limit,),
+    ).fetchall()
+
+
+def save_loop_improvement_patch_application_attempt_event(
+        conn, attempt_id, event_type, details_json="{}") -> int:
+    cur = conn.execute(
+        "INSERT INTO loop_improvement_patch_application_attempt_events "
+        "(attempt_id, event_type, details_json) VALUES (?,?,?)",
+        (attempt_id, event_type, details_json),
+    )
+    conn.commit()
+    return cur.lastrowid
+
+
+def get_loop_improvement_patch_application_attempt_events(conn, attempt_id):
+    return conn.execute(
+        "SELECT * FROM loop_improvement_patch_application_attempt_events "
+        "WHERE attempt_id=? ORDER BY id",
+        (attempt_id,),
+    ).fetchall()
+
+
+def save_loop_improvement_patch_application_markdown_report(
+        conn, attempt_id, report_path, report_format, content_hash,
+        bytes_written) -> int:
+    cur = conn.execute(
+        "INSERT INTO loop_improvement_patch_application_markdown_reports "
+        "(attempt_id, report_path, report_format, content_hash, bytes_written) "
+        "VALUES (?,?,?,?,?)",
+        (attempt_id, report_path, report_format, content_hash, bytes_written),
+    )
+    conn.commit()
+    return cur.lastrowid
+
+
+def get_loop_improvement_patch_application_markdown_report(conn, attempt_id):
+    return conn.execute(
+        "SELECT * FROM loop_improvement_patch_application_markdown_reports "
+        "WHERE attempt_id=? ORDER BY id DESC LIMIT 1",
+        (attempt_id,),
+    ).fetchone()
+
+
+def list_loop_improvement_patch_application_markdown_reports(conn, limit=20):
+    return conn.execute(
+        "SELECT * FROM loop_improvement_patch_application_markdown_reports "
         "ORDER BY id DESC LIMIT ?",
         (limit,),
     ).fetchall()

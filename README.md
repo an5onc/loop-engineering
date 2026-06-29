@@ -376,6 +376,43 @@ does not execute suggested commands, call Ollama, create loops, create external
 jobs, mutate handoffs, mutate improvement definitions, edit workspace files, or
 read protected file contents.
 
+# Loop Engineering - Stage 6.4
+
+## What's new in 6.4 - Safe Patch Application Engine
+
+Stage 6.4 introduces a guarded patch application attempt engine. It accepts an
+approved Stage 6.3 approval record, resolves the approved patch proposal target
+files, and creates an auditable application attempt. Because rollback snapshots
+are introduced in Stage 6.5, Stage 6.4 fails closed with
+`blocked_rollback_required` before any file write.
+
+```bash
+python3 main.py --attempt-loop-improvement-patch-application latest
+python3 main.py --attempt-loop-improvement-patch-application latest --save-report
+python3 main.py --loop-improvement-patch-application-attempts
+python3 main.py --loop-improvement-patch-application-attempt latest
+```
+
+Each application attempt is saved in
+`loop_improvement_patch_application_attempts` with an event log in
+`loop_improvement_patch_application_attempt_events`. Optional Markdown reports
+are written under:
+
+```
+loop_improvement_patch_application_reports/loop_improvement_patch_application_ATTEMPTID_YYYYMMDD_HHMMSS.md
+```
+
+Application attempts always record `applies_changes=false`,
+`writes_files=false`, `executes_commands=false`, `commits_changes=false`, and
+`generates_patch=false` until rollback snapshots and later apply controls are
+implemented.
+
+Safety: Stage 6.4 verifies approved metadata and records blockers only. It does
+not generate patches, write files, edit files, execute commands, call Ollama,
+create loops, create external jobs, commit, apply improvements, mutate
+framework definitions, or execute suggested commands. It writes only application
+attempt metadata and optional Markdown reports.
+
 # Loop Engineering - Stage 6.3
 
 ## What's new in 6.3 - Human Approval for Patch Application

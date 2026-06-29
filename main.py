@@ -36,6 +36,7 @@ import loop_improvement_application_planner
 import loop_improvement_handoff
 import loop_improvement_handoff_review
 import loop_improvement_patch_approval
+import loop_improvement_patch_application
 import loop_improvement_patch_dry_run
 import loop_improvement_patch_proposals
 import loop_improvement_review
@@ -134,6 +135,8 @@ COMMANDS:
   --request-loop-improvement-patch-approval VALIDATION_ID [--save-report]
   --loop-improvement-patch-approvals / --loop-improvement-patch-approval ID
   --set-loop-improvement-patch-approval-status ID pending|approved|rejected|cancelled ["notes"]
+  --attempt-loop-improvement-patch-application APPROVAL_ID [--save-report]
+  --loop-improvement-patch-application-attempts / --loop-improvement-patch-application-attempt ID
   --replay LOOP_ID            replay a prior loop
   --paused                    list paused external-agent loops
   --resume LOOP_ID [--external-completion-file PATH | --external-completion-text 'JSON'] [--commit]
@@ -5537,6 +5540,167 @@ def _cmd_set_loop_improvement_patch_approval_status(args) -> int:
     return 0
 
 
+def _latest_loop_improvement_patch_application_attempt_id(conn):
+    rows = database.list_loop_improvement_patch_application_attempts(conn, 1)
+    return rows[0]["id"] if rows else None
+
+
+def _patch_application_markdown_path_display(path):
+    if not path:
+        return "(none)"
+    if not loop_improvement_patch_application.is_markdown_report_path(path):
+        return f"invalid patch application report path metadata: {path}"
+    if not os.path.exists(path):
+        return f"missing patch application report path: {path}"
+    return path
+
+
+def _print_loop_improvement_patch_application_attempt(attempt, attempt_id=None,
+                                                      markdown_path=None):
+    _rule("LOOP IMPROVEMENT PATCH APPLICATION ATTEMPT")
+    if attempt_id is not None:
+        print(f"Attempt ID          : {attempt_id}")
+    if markdown_path:
+        print(f"Markdown report     : {markdown_path}")
+    print(f"Generated at        : {attempt.generated_at}")
+    print(f"Approval ID         : {attempt.approval_id}")
+    print(f"Validation ID       : {attempt.validation_id}")
+    print(f"Patch Proposal ID   : {attempt.patch_proposal_id}")
+    print(f"Application Plan ID : {attempt.application_plan_id}")
+    print(f"Status              : {attempt.status}")
+    print(f"Approval confirmed  : {attempt.approval_confirmed}")
+    print(f"Rollback required   : {attempt.rollback_snapshot_required}")
+    print(f"Rollback present    : {attempt.rollback_snapshot_present}")
+    print(f"Target files        : {attempt.total_target_files}")
+    print(f"Applies changes     : {attempt.applies_changes}")
+    print(f"Writes files        : {attempt.writes_files}")
+    print(f"Executes commands   : {attempt.executes_commands}")
+    print(f"Commits changes     : {attempt.commits_changes}")
+    print(f"Generates patch     : {attempt.generates_patch}")
+
+    _rule("TARGET FILES")
+    if not attempt.target_files:
+        print("(none)")
+    for path in attempt.target_files:
+        print(f"- {path}")
+
+    _rule("BLOCKERS")
+    if not attempt.blockers:
+        print("(none)")
+    for blocker in attempt.blockers:
+        print(f"- {blocker}")
+
+    _rule("REQUIRED NEXT CONTROLS")
+    for control in attempt.required_next_controls:
+        print(f"- {control}")
+
+    _rule("SAFETY")
+    for note in attempt.safety_notes:
+        print(f"- {note}")
+
+
+def _cmd_attempt_loop_improvement_patch_application(args) -> int:
+    if not args:
+        print("ERROR: --attempt-loop-improvement-patch-application needs an APPROVAL_ID",
+              file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    try:
+        approval_id = _parse_id_or_latest(
+            conn,
+            args[0],
+            _latest_loop_improvement_patch_approval_id,
+            "loop improvement patch approval",
+        )
+    except (ValueError, TypeError):
+        print("ERROR: APPROVAL_ID must be an integer or 'latest'", file=sys.stderr)
+        return 1
+    engine = loop_improvement_patch_application.LoopImprovementPatchApplicationEngine(
+        conn)
+    try:
+        attempt = engine.create_application_attempt(approval_id)
+        attempt_id = engine.save_application_attempt(attempt)
+        markdown_path = None
+        if "--save-report" in args:
+            md = engine.save_markdown_report(attempt_id, attempt)
+            markdown_path = md.report_path
+    except ValueError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    except Exception as exc:
+        print(f"ERROR: loop improvement patch application attempt failed: {exc}",
+              file=sys.stderr)
+        return 1
+    _print_loop_improvement_patch_application_attempt(
+        attempt, attempt_id=attempt_id, markdown_path=markdown_path)
+    return 0
+
+
+def _cmd_loop_improvement_patch_application_attempts(args) -> int:
+    limit = 20
+    if "--limit" in args:
+        try:
+            limit = int(_flag_val(args, "--limit"))
+        except (TypeError, ValueError):
+            print("ERROR: --limit needs an integer", file=sys.stderr)
+            return 1
+    conn = database.init_db()
+    rows = database.list_loop_improvement_patch_application_attempts(conn, limit)
+    _rule(f"LOOP IMPROVEMENT PATCH APPLICATION ATTEMPTS ({len(rows)})")
+    if not rows:
+        print("(none)")
+        return 0
+    for row in rows:
+        md = database.get_loop_improvement_patch_application_markdown_report(
+            conn, row["id"])
+        print(f"#{row['id']}  {row['generated_at']}  "
+              f"approval={row['approval_id']} status={row['status']} "
+              f"targets={row['total_target_files']} "
+              f"applies_changes={bool(row['applies_changes'])} "
+              f"writes_files={bool(row['writes_files'])}")
+        if md is not None:
+            print(
+                "    markdown: "
+                f"{_patch_application_markdown_path_display(md['report_path'])}"
+            )
+    return 0
+
+
+def _cmd_loop_improvement_patch_application_attempt(args) -> int:
+    if not args:
+        print("ERROR: --loop-improvement-patch-application-attempt needs an ATTEMPT_ID",
+              file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    try:
+        attempt_id = _parse_id_or_latest(
+            conn,
+            args[0],
+            _latest_loop_improvement_patch_application_attempt_id,
+            "loop improvement patch application attempt",
+        )
+    except (ValueError, TypeError):
+        print("ERROR: ATTEMPT_ID must be an integer or 'latest'", file=sys.stderr)
+        return 1
+    row = database.get_loop_improvement_patch_application_attempt(conn, attempt_id)
+    if row is None:
+        print(f"ERROR: no loop improvement patch application attempt {args[0]}",
+              file=sys.stderr)
+        return 1
+    attempt = loop_improvement_patch_application.application_attempt_from_row(row)
+    md = database.get_loop_improvement_patch_application_markdown_report(
+        conn, row["id"])
+    _print_loop_improvement_patch_application_attempt(
+        attempt,
+        attempt_id=row["id"],
+        markdown_path=(
+            _patch_application_markdown_path_display(md["report_path"])
+            if md else None
+        ),
+    )
+    return 0
+
+
 def _cmd_archive_external_job(args, unarchive=False) -> int:
     import external_agent_jobs as eaj
     if not args:
@@ -7346,6 +7510,12 @@ def main() -> int:
         return _cmd_loop_improvement_patch_approval(args[1:])
     if args and args[0] == "--set-loop-improvement-patch-approval-status":
         return _cmd_set_loop_improvement_patch_approval_status(args[1:])
+    if args and args[0] == "--attempt-loop-improvement-patch-application":
+        return _cmd_attempt_loop_improvement_patch_application(args[1:])
+    if args and args[0] == "--loop-improvement-patch-application-attempts":
+        return _cmd_loop_improvement_patch_application_attempts(args[1:])
+    if args and args[0] == "--loop-improvement-patch-application-attempt":
+        return _cmd_loop_improvement_patch_application_attempt(args[1:])
     if args and args[0] == "--replay":
         return _cmd_replay(args[1:])
     if args and args[0] == "--templates":
