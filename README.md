@@ -107,6 +107,37 @@ archived or cancelled jobs. New table `external_completion_inbox_events`; gate
 `external_completion_inbox_valid`; stop condition `external_completion_inbox_invalid`;
 metrics `external_completion_inbox_scanned/_pending_count/_imported_count/_failed_count`.
 
+# Cross-Workstation Agent Handoff
+
+This repo includes a portable handoff system so another agent can clone the
+project and continue from the same pushed state without relying on local Codex
+memory or ignored runtime artifacts.
+
+```bash
+git clone https://github.com/an5onc/loop-engineering.git
+cd loop-engineering
+git checkout main
+git pull --ff-only
+python3 agent_handoff.py --check
+```
+
+Before ending a session:
+
+```bash
+python3 -m py_compile *.py
+python3 audit_hotfix.py
+python3 agent_handoff.py --write
+git add AGENTS.md HANDOFF.md agent_handoff.py test_agent_handoff.py README.md
+git commit -m "Update agent handoff"
+git push origin main
+```
+
+`AGENTS.md` defines the agent contract. `HANDOFF.md` is the portable current
+handoff. `agent_handoff.py --check` verifies that the repo has the expected
+remote, branch, and ignored runtime artifacts. Runtime databases, generated
+reports, external job folders, and local `workspace/` smoke files are not part of
+the portable handoff.
+
 # Loop Engineering — Stage 5.0
 
 ## What's new in 5.0 — Loop Improvement Engine
