@@ -522,7 +522,9 @@ class LoopImprovementStage5AuditEngine:
         handoffs = _count(self.conn, "loop_improvement_handoffs")
         auto_apply_tables = self.conn.execute(
             "SELECT name FROM sqlite_master WHERE type='table' AND "
-            "(name LIKE '%auto_apply%' OR name LIKE '%self_improvement%')"
+            "(name LIKE '%auto_apply%' OR "
+            "name LIKE '%self_improvement_apply%' OR "
+            "name LIKE '%self_improvement_execution%')"
         ).fetchall()
         safe_path = all(n > 0 for n in (proposals, reviews, actions, handoffs,
                                         handoff_reviews))

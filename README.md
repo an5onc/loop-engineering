@@ -378,6 +378,50 @@ read protected file contents.
 
 # Loop Engineering - Stage 6.5
 
+## What's new in 6.8 - Self-Improvement Audit
+
+Stage 6.8 audits the controlled self-improvement chain for safety,
+completeness, and readiness before the Stage 6 final audit. It checks the full
+metadata path:
+
+```
+application plan -> patch proposal -> dry-run validation -> human approval
+-> safe application attempt -> rollback snapshot -> post-apply verification
+-> outcome tracking
+```
+
+```bash
+python3 main.py --self-improvement-audit
+python3 main.py --self-improvement-audit --save-report
+python3 main.py --self-improvement-audits
+python3 main.py --self-improvement-audit-show latest
+```
+
+Audit sections cover application planning, patch proposals, dry-run validation,
+human approval, safe application, rollback, post-apply verification, outcome
+tracking, safety baseline, and Stage 6 final readiness. Statuses are `PASS`,
+`PASS_WITH_WARNINGS`, `FAIL`, and `BLOCKED`; check and section statuses are
+`PASS`, `WARN`, `FAIL`, and `BLOCKED`.
+
+Each audit is saved in `self_improvement_audits`. Optional Markdown reports are
+written under:
+
+```
+self_improvement_audit_reports/self_improvement_audit_AUDITID_YYYYMMDD_HHMMSS.md
+```
+
+The Stage 6 final readiness block reports `ready`, blockers, warnings,
+recommended next stage (`Stage 6.9`), and required final audit controls. It is a
+readiness signal only; Stage 6.8 does not advance or apply any improvement.
+
+Safety: Stage 6.8 never executes commands, runs tests automatically, writes
+`command_results`, calls Ollama, applies patches, restores files, edits source
+files, creates loops, creates external jobs, imports completions, resumes jobs,
+commits, or mutates loop definitions, agent definitions, prompts, quality gates,
+stop conditions, workspace profiles, jobs, or workspace files. It reads only
+Stage 6 metadata plus safe SQLite schema metadata and writes only self-audit
+metadata plus optional Markdown reports.
+
 ## What's new in 6.7 - Improvement Outcome Tracker
 
 Stage 6.7 records deterministic outcome metadata after controlled
