@@ -31,6 +31,7 @@ import observatory_action_handoff_review
 import observatory_action_review
 import observatory_drilldown
 import loop_improvement
+import loop_improvement_actions
 import loop_improvement_review
 import observatory_reports
 import observatory_remediation
@@ -106,7 +107,11 @@ COMMANDS:
   --set-loop-improvement-status ID accepted|rejected|deferred
   --loop-improvement-review [--priority P | --target-type T | --status S]
   --loop-improvement-reviews / --loop-improvement-review-show ID
-  --create-loop-improvement-actions REVIEW_ID   reserved safe no-op in Stage 5.1
+  --create-loop-improvement-actions REVIEW_ID [--priority P | --target-type T]
+  --loop-improvement-actions / --loop-improvement-action ID
+  --set-loop-improvement-action-status ID open|in_progress|completed|dismissed|blocked
+  --set-loop-improvement-action-notes ID "notes" / --loop-improvement-actions-report
+  --loop-improvement-action-batches / --loop-improvement-action-batch ID
   --replay LOOP_ID            replay a prior loop
   --paused                    list paused external-agent loops
   --resume LOOP_ID [--external-completion-file PATH | --external-completion-text 'JSON'] [--commit]
@@ -3908,6 +3913,25 @@ def _cmd_loop_improvement_review_show(args) -> int:
     return 0
 
 
+def _latest_improvement_action_id(conn):
+    rows = database.list_loop_improvement_action_items(conn, status=None, limit=1)
+    return rows[0]["id"] if rows else None
+
+
+def _latest_improvement_action_batch_id(conn):
+    rows = database.list_loop_improvement_action_batches(conn, 1)
+    return rows[0]["id"] if rows else None
+
+
+def _improvement_action_create_filters(args):
+    return {
+        "priority": _flag_val(args, "--priority"),
+        "target_type": _flag_val(args, "--target-type"),
+        "include_deferred": "--include-deferred" in args,
+        "include_rejected": "--include-rejected" in args,
+    }
+
+
 def _cmd_create_loop_improvement_actions(args) -> int:
     if not args:
         print("ERROR: --create-loop-improvement-actions needs a REVIEW_ID",
@@ -3921,15 +3945,231 @@ def _cmd_create_loop_improvement_actions(args) -> int:
     except ValueError:
         print("ERROR: REVIEW_ID must be an integer or 'latest'", file=sys.stderr)
         return 1
-    row = database.get_loop_improvement_review(conn, review_id)
-    if row is None:
-        print(f"ERROR: no loop improvement review {args[0]}", file=sys.stderr)
+    filters = _improvement_action_create_filters(args[1:])
+    engine = loop_improvement_actions.LoopImprovementActionEngine(conn)
+    try:
+        batch = engine.create_actions_from_review(review_id, **filters)
+    except ValueError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
         return 1
-    print(f"loop improvement review {review_id} inspected")
-    print("Stage 5.1 does not create action rows automatically.")
-    print("No loops, jobs, commands, or proposal statuses were changed.")
-    print("Use --loop-improvement-proposal PROPOSAL_ID and "
-          "--set-loop-improvement-status explicitly.")
+    _rule("LOOP IMPROVEMENT ACTION CONVERSION")
+    print(f"Batch ID          : {batch.id}")
+    print(f"Source review ID  : {batch.source_review_id}")
+    print(f"Created           : {batch.created_count}")
+    print(f"Skipped duplicate : {batch.skipped_duplicates}")
+    print(f"Filters           : {json.dumps(filters, sort_keys=True)}")
+    _rule("ACTIONS")
+    if not batch.actions:
+        print("(none)")
+    for action in batch.actions:
+        print(f"- action #{action.id} proposal=#{action.source_proposal_id} "
+              f"[{action.priority}] {action.target_type}/{action.target_name}")
+        print(f"  status  : {action.status}")
+        print(f"  title   : {action.title}")
+        print(f"  command : {action.suggested_next_command}")
+    _rule("SAFETY")
+    print("No proposals were applied automatically.")
+    print("No suggested commands were executed.")
+    print("No loops, jobs, prompts, gates, or stop conditions were changed.")
+    return 0
+
+
+def _cmd_loop_improvement_actions(args) -> int:
+    status = _flag_val(args, "--status") or "open"
+    priority = _flag_val(args, "--priority")
+    target_type = _flag_val(args, "--target-type")
+    limit = 25
+    if "--limit" in args:
+        try:
+            limit = int(_flag_val(args, "--limit"))
+        except (TypeError, ValueError):
+            print("ERROR: --limit needs an integer", file=sys.stderr)
+            return 1
+    conn = database.init_db()
+    engine = loop_improvement_actions.LoopImprovementActionEngine(conn)
+    actions = engine.list_actions(
+        status=status, priority=priority, target_type=target_type, limit=limit)
+    _rule(f"LOOP IMPROVEMENT ACTIONS ({len(actions)})")
+    if not actions:
+        print("(none)")
+        return 0
+    for action in actions:
+        print(f"#{action.id} review={action.source_review_id} "
+              f"proposal={action.source_proposal_id} [{action.priority}] "
+              f"{action.target_type}/{action.target_name} status={action.status} "
+              f"age={_age(action.created_at)}")
+        print(f"    title: {action.title}")
+        print(f"    next : {action.suggested_next_command}")
+    return 0
+
+
+def _cmd_loop_improvement_action(args) -> int:
+    if not args:
+        print("ERROR: --loop-improvement-action needs an ACTION_ID", file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    try:
+        action_id = _parse_id_or_latest(
+            conn, args[0], _latest_improvement_action_id,
+            "loop improvement action")
+    except ValueError:
+        print("ERROR: ACTION_ID must be an integer or 'latest'", file=sys.stderr)
+        return 1
+    engine = loop_improvement_actions.LoopImprovementActionEngine(conn)
+    try:
+        action = engine.get_action(action_id)
+    except ValueError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    _rule("LOOP IMPROVEMENT ACTION")
+    print(f"ID                    : {action.id}")
+    print(f"Source review ID      : {action.source_review_id}")
+    print(f"Source proposal ID    : {action.source_proposal_id}")
+    print(f"Source plan ID        : {action.source_plan_id}")
+    print(f"Target                : {action.target_type}/{action.target_name}")
+    print(f"Title                 : {action.title}")
+    print(f"Priority              : {action.priority}")
+    print(f"Status                : {action.status}")
+    print(f"Risk / effort         : {action.risk_level} / {action.effort_level}")
+    print(f"Recommended decision  : {action.recommended_decision}")
+    print(f"Problem summary       : {action.problem_summary}")
+    print(f"Proposed change       : {action.proposed_change}")
+    print(f"Expected benefit      : {action.expected_benefit}")
+    print(f"Suggested command     : {action.suggested_next_command}")
+    print(f"Affected loops        : {action.affected_loop_ids or []}")
+    print(f"Affected actions      : {action.affected_action_ids or []}")
+    print(f"Affected remediation  : {action.affected_remediation_plan_ids or []}")
+    print(f"Notes                 : {action.notes}")
+    print(f"Created at            : {action.created_at}")
+    print(f"Updated at            : {action.updated_at}")
+    print(f"Completed at          : {action.completed_at}")
+    print(f"Dismissed at          : {action.dismissed_at}")
+    _rule("STATUS COMMANDS")
+    for status in ("in_progress", "completed", "dismissed", "blocked"):
+        print(f"- python3 main.py --set-loop-improvement-action-status {action.id} {status}")
+    print(f"- python3 main.py --set-loop-improvement-action-notes {action.id} \"notes\"")
+    events = database.get_loop_improvement_action_events(conn, action.id)
+    _rule("EVENTS")
+    if not events:
+        print("(none)")
+    for event in events:
+        print(f"- {event['created_at']} {event['event_type']} "
+              f"{event['status_before']} -> {event['status_after']}")
+    return 0
+
+
+def _cmd_set_loop_improvement_action_status(args) -> int:
+    if len(args) < 2:
+        print("ERROR: --set-loop-improvement-action-status needs ACTION_ID STATUS",
+              file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    try:
+        action_id = _parse_id_or_latest(
+            conn, args[0], _latest_improvement_action_id,
+            "loop improvement action")
+    except ValueError:
+        print("ERROR: ACTION_ID must be an integer or 'latest'", file=sys.stderr)
+        return 1
+    engine = loop_improvement_actions.LoopImprovementActionEngine(conn)
+    try:
+        action = engine.update_status(action_id, args[1])
+    except ValueError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    print(f"loop improvement action {action.id} status -> {action.status}")
+    print("proposal was not applied automatically")
+    return 0
+
+
+def _cmd_set_loop_improvement_action_notes(args) -> int:
+    if len(args) < 2:
+        print("ERROR: --set-loop-improvement-action-notes needs ACTION_ID NOTES",
+              file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    try:
+        action_id = _parse_id_or_latest(
+            conn, args[0], _latest_improvement_action_id,
+            "loop improvement action")
+    except ValueError:
+        print("ERROR: ACTION_ID must be an integer or 'latest'", file=sys.stderr)
+        return 1
+    notes = " ".join(args[1:])
+    engine = loop_improvement_actions.LoopImprovementActionEngine(conn)
+    try:
+        action = engine.update_notes(action_id, notes)
+    except ValueError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    print(f"loop improvement action {action.id} notes updated")
+    print("notes are stored as plain text and were not executed")
+    return 0
+
+
+def _cmd_loop_improvement_action_batches(args) -> int:
+    limit = 20
+    if "--limit" in args:
+        try:
+            limit = int(_flag_val(args, "--limit"))
+        except (TypeError, ValueError):
+            print("ERROR: --limit needs an integer", file=sys.stderr)
+            return 1
+    conn = database.init_db()
+    rows = database.list_loop_improvement_action_batches(conn, limit)
+    _rule(f"LOOP IMPROVEMENT ACTION BATCHES ({len(rows)})")
+    if not rows:
+        print("(none)")
+        return 0
+    for row in rows:
+        print(f"#{row['id']} review={row['source_review_id']} "
+              f"generated={row['generated_at']} created={row['created_count']} "
+              f"skipped={row['skipped_duplicates']}")
+        print(f"    action ids: {row['action_ids_json']}")
+        print(f"    filters   : {row['filters_json']}")
+    return 0
+
+
+def _cmd_loop_improvement_action_batch(args) -> int:
+    if not args:
+        print("ERROR: --loop-improvement-action-batch needs a BATCH_ID", file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    try:
+        batch_id = _parse_id_or_latest(
+            conn, args[0], _latest_improvement_action_batch_id,
+            "loop improvement action batch")
+    except ValueError:
+        print("ERROR: BATCH_ID must be an integer or 'latest'", file=sys.stderr)
+        return 1
+    row = database.get_loop_improvement_action_batch(conn, batch_id)
+    if row is None:
+        print(f"ERROR: no loop improvement action batch {args[0]}", file=sys.stderr)
+        return 1
+    _rule("LOOP IMPROVEMENT ACTION BATCH")
+    print(f"Batch ID          : {row['id']}")
+    print(f"Source review ID  : {row['source_review_id']}")
+    print(f"Generated at      : {row['generated_at']}")
+    print(f"Total actions     : {row['total_actions']}")
+    print(f"Created count     : {row['created_count']}")
+    print(f"Skipped duplicate : {row['skipped_duplicates']}")
+    print(f"Action IDs        : {row['action_ids_json']}")
+    print(f"Filters           : {row['filters_json']}")
+    return 0
+
+
+def _cmd_loop_improvement_actions_report(args) -> int:
+    conn = database.init_db()
+    engine = loop_improvement_actions.LoopImprovementActionEngine(conn)
+    try:
+        md = engine.save_markdown_report()
+    except Exception as exc:
+        print(f"ERROR: loop improvement action report failed: {exc}",
+              file=sys.stderr)
+        return 1
+    _rule("LOOP IMPROVEMENT ACTIONS REPORT")
+    print(f"Markdown     : {md.report_path}")
+    print(f"Bytes written: {md.bytes_written}")
     return 0
 
 
@@ -5684,6 +5924,20 @@ def main() -> int:
         return _cmd_loop_improvement_review_show(args[1:])
     if args and args[0] == "--create-loop-improvement-actions":
         return _cmd_create_loop_improvement_actions(args[1:])
+    if args and args[0] == "--loop-improvement-actions":
+        return _cmd_loop_improvement_actions(args[1:])
+    if args and args[0] == "--loop-improvement-action":
+        return _cmd_loop_improvement_action(args[1:])
+    if args and args[0] == "--set-loop-improvement-action-status":
+        return _cmd_set_loop_improvement_action_status(args[1:])
+    if args and args[0] == "--set-loop-improvement-action-notes":
+        return _cmd_set_loop_improvement_action_notes(args[1:])
+    if args and args[0] == "--loop-improvement-action-batches":
+        return _cmd_loop_improvement_action_batches(args[1:])
+    if args and args[0] == "--loop-improvement-action-batch":
+        return _cmd_loop_improvement_action_batch(args[1:])
+    if args and args[0] == "--loop-improvement-actions-report":
+        return _cmd_loop_improvement_actions_report(args[1:])
     if args and args[0] == "--replay":
         return _cmd_replay(args[1:])
     if args and args[0] == "--templates":

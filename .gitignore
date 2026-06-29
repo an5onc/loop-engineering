@@ -12,6 +12,7 @@ observatory_action_handoff_review_reports/
 observatory_stage4_audit_reports/
 loop_improvement_reports/
 loop_improvement_review_reports/
+loop_improvement_action_reports/
 external_agent_handoffs/
 external_agent_jobs/
 external_batch_reports/

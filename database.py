@@ -646,6 +646,69 @@ CREATE TABLE IF NOT EXISTS loop_improvement_review_markdown_reports (
     FOREIGN KEY (improvement_review_id) REFERENCES loop_improvement_reviews(id)
 );
 
+CREATE TABLE IF NOT EXISTS loop_improvement_action_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    source_review_id INTEGER NOT NULL,
+    source_proposal_id INTEGER NOT NULL,
+    source_plan_id INTEGER NOT NULL,
+    target_type TEXT,
+    target_name TEXT,
+    title TEXT,
+    priority TEXT,
+    status TEXT,
+    risk_level TEXT,
+    effort_level TEXT,
+    problem_summary TEXT,
+    proposed_change TEXT,
+    expected_benefit TEXT,
+    recommended_decision TEXT,
+    suggested_next_command TEXT,
+    affected_loop_ids_json TEXT,
+    affected_action_ids_json TEXT,
+    affected_remediation_plan_ids_json TEXT,
+    notes TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT,
+    completed_at TEXT,
+    dismissed_at TEXT,
+    FOREIGN KEY (source_review_id) REFERENCES loop_improvement_reviews(id),
+    FOREIGN KEY (source_proposal_id) REFERENCES loop_improvement_proposals(id),
+    FOREIGN KEY (source_plan_id) REFERENCES loop_improvement_plans(id)
+);
+
+CREATE TABLE IF NOT EXISTS loop_improvement_action_batches (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    source_review_id INTEGER NOT NULL,
+    generated_at TEXT,
+    filters_json TEXT,
+    total_actions INTEGER,
+    created_count INTEGER,
+    skipped_duplicates INTEGER,
+    action_ids_json TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (source_review_id) REFERENCES loop_improvement_reviews(id)
+);
+
+CREATE TABLE IF NOT EXISTS loop_improvement_action_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    action_id INTEGER,
+    event_type TEXT,
+    status_before TEXT,
+    status_after TEXT,
+    details_json TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (action_id) REFERENCES loop_improvement_action_items(id)
+);
+
+CREATE TABLE IF NOT EXISTS loop_improvement_action_markdown_reports (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    report_path TEXT,
+    report_format TEXT,
+    content_hash TEXT,
+    bytes_written INTEGER,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE IF NOT EXISTS project_workspaces (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT UNIQUE,
@@ -2014,6 +2077,204 @@ def get_loop_improvement_review_markdown_report(conn, review_id):
 def list_loop_improvement_review_markdown_reports(conn, limit=20):
     return conn.execute(
         "SELECT * FROM loop_improvement_review_markdown_reports "
+        "ORDER BY id DESC LIMIT ?",
+        (limit,),
+    ).fetchall()
+
+
+def save_loop_improvement_action_item(
+    conn,
+    source_review_id,
+    source_proposal_id,
+    source_plan_id,
+    target_type,
+    target_name,
+    title,
+    priority,
+    status,
+    risk_level,
+    effort_level,
+    problem_summary,
+    proposed_change,
+    expected_benefit,
+    recommended_decision,
+    suggested_next_command,
+    affected_loop_ids_json,
+    affected_action_ids_json,
+    affected_remediation_plan_ids_json,
+    notes="",
+) -> int:
+    now = _now_iso()
+    cur = conn.execute(
+        "INSERT INTO loop_improvement_action_items "
+        "(source_review_id, source_proposal_id, source_plan_id, target_type, "
+        "target_name, title, priority, status, risk_level, effort_level, "
+        "problem_summary, proposed_change, expected_benefit, recommended_decision, "
+        "suggested_next_command, affected_loop_ids_json, affected_action_ids_json, "
+        "affected_remediation_plan_ids_json, notes, created_at, updated_at) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        (
+            source_review_id,
+            source_proposal_id,
+            source_plan_id,
+            target_type,
+            target_name,
+            title,
+            priority,
+            status,
+            risk_level,
+            effort_level,
+            problem_summary,
+            proposed_change,
+            expected_benefit,
+            recommended_decision,
+            suggested_next_command,
+            affected_loop_ids_json,
+            affected_action_ids_json,
+            affected_remediation_plan_ids_json,
+            notes,
+            now,
+            now,
+        ),
+    )
+    conn.commit()
+    return cur.lastrowid
+
+
+def get_loop_improvement_action_item(conn, action_id):
+    return conn.execute(
+        "SELECT * FROM loop_improvement_action_items WHERE id=?", (action_id,)
+    ).fetchone()
+
+
+def get_loop_improvement_action_item_for_source(conn, source_review_id,
+                                                source_proposal_id):
+    return conn.execute(
+        "SELECT * FROM loop_improvement_action_items "
+        "WHERE source_review_id=? AND source_proposal_id=? ORDER BY id DESC LIMIT 1",
+        (source_review_id, source_proposal_id),
+    ).fetchone()
+
+
+def list_loop_improvement_action_items(conn, status=None, priority=None,
+                                       target_type=None, limit=25):
+    where, params = [], []
+    if status is not None:
+        where.append("status=?")
+        params.append(status)
+    if priority is not None:
+        where.append("priority=?")
+        params.append(priority)
+    if target_type is not None:
+        where.append("target_type=?")
+        params.append(target_type)
+    clause = (" WHERE " + " AND ".join(where)) if where else ""
+    params.append(limit)
+    return conn.execute(
+        f"SELECT * FROM loop_improvement_action_items{clause} "
+        "ORDER BY id DESC LIMIT ?",
+        params,
+    ).fetchall()
+
+
+def update_loop_improvement_action_status(conn, action_id, status):
+    now = _now_iso()
+    completed_at = now if status == "completed" else None
+    dismissed_at = now if status == "dismissed" else None
+    conn.execute(
+        "UPDATE loop_improvement_action_items SET status=?, updated_at=?, "
+        "completed_at=COALESCE(?, completed_at), "
+        "dismissed_at=COALESCE(?, dismissed_at) WHERE id=?",
+        (status, now, completed_at, dismissed_at, action_id),
+    )
+    conn.commit()
+
+
+def update_loop_improvement_action_notes(conn, action_id, notes):
+    conn.execute(
+        "UPDATE loop_improvement_action_items SET notes=?, updated_at=? WHERE id=?",
+        (notes, _now_iso(), action_id),
+    )
+    conn.commit()
+
+
+def save_loop_improvement_action_batch(
+    conn,
+    source_review_id,
+    generated_at,
+    filters_json,
+    total_actions,
+    created_count,
+    skipped_duplicates,
+    action_ids_json,
+) -> int:
+    cur = conn.execute(
+        "INSERT INTO loop_improvement_action_batches "
+        "(source_review_id, generated_at, filters_json, total_actions, "
+        "created_count, skipped_duplicates, action_ids_json) "
+        "VALUES (?,?,?,?,?,?,?)",
+        (
+            source_review_id,
+            generated_at,
+            filters_json,
+            total_actions,
+            created_count,
+            skipped_duplicates,
+            action_ids_json,
+        ),
+    )
+    conn.commit()
+    return cur.lastrowid
+
+
+def get_loop_improvement_action_batch(conn, batch_id):
+    return conn.execute(
+        "SELECT * FROM loop_improvement_action_batches WHERE id=?", (batch_id,)
+    ).fetchone()
+
+
+def list_loop_improvement_action_batches(conn, limit=20):
+    return conn.execute(
+        "SELECT * FROM loop_improvement_action_batches ORDER BY id DESC LIMIT ?",
+        (limit,),
+    ).fetchall()
+
+
+def save_loop_improvement_action_event(conn, action_id, event_type,
+                                       status_before=None, status_after=None,
+                                       details_json="{}") -> int:
+    cur = conn.execute(
+        "INSERT INTO loop_improvement_action_events "
+        "(action_id, event_type, status_before, status_after, details_json) "
+        "VALUES (?,?,?,?,?)",
+        (action_id, event_type, status_before, status_after, details_json),
+    )
+    conn.commit()
+    return cur.lastrowid
+
+
+def get_loop_improvement_action_events(conn, action_id):
+    return conn.execute(
+        "SELECT * FROM loop_improvement_action_events WHERE action_id=? ORDER BY id",
+        (action_id,),
+    ).fetchall()
+
+
+def save_loop_improvement_action_markdown_report(conn, report_path, report_format,
+                                                 content_hash,
+                                                 bytes_written) -> int:
+    cur = conn.execute(
+        "INSERT INTO loop_improvement_action_markdown_reports "
+        "(report_path, report_format, content_hash, bytes_written) VALUES (?,?,?,?)",
+        (report_path, report_format, content_hash, bytes_written),
+    )
+    conn.commit()
+    return cur.lastrowid
+
+
+def list_loop_improvement_action_markdown_reports(conn, limit=20):
+    return conn.execute(
+        "SELECT * FROM loop_improvement_action_markdown_reports "
         "ORDER BY id DESC LIMIT ?",
         (limit,),
     ).fetchall()

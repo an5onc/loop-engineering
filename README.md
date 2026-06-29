@@ -238,6 +238,56 @@ contents. It reads improvement proposal metadata only and writes only review
 metadata plus optional Markdown reports inside
 `loop_improvement_review_reports/`.
 
+# Loop Engineering — Stage 5.2
+
+## What's new in 5.2 — Loop Improvement Action Conversion
+
+Stage 5.2 adds a safe bridge from reviewed improvement proposals to manual
+action items. Operators can convert accepted, conversion-ready, urgent, or high
+priority proposals from a saved improvement review into durable tracking records
+without applying any framework change automatically.
+
+```bash
+python3 main.py --create-loop-improvement-actions latest
+python3 main.py --create-loop-improvement-actions latest --priority high
+python3 main.py --create-loop-improvement-actions latest --target-type quality_gate
+python3 main.py --create-loop-improvement-actions latest --include-deferred
+python3 main.py --create-loop-improvement-actions latest --include-rejected
+python3 main.py --loop-improvement-actions
+python3 main.py --loop-improvement-actions --status open
+python3 main.py --loop-improvement-actions --priority high
+python3 main.py --loop-improvement-actions --target-type quality_gate
+python3 main.py --loop-improvement-action 1
+python3 main.py --set-loop-improvement-action-status 1 in_progress
+python3 main.py --set-loop-improvement-action-status 1 completed
+python3 main.py --set-loop-improvement-action-notes 1 "Reviewed and accepted"
+python3 main.py --loop-improvement-action-batches
+python3 main.py --loop-improvement-action-batch latest
+python3 main.py --loop-improvement-actions-report
+```
+
+Action statuses are `open`, `in_progress`, `completed`, `dismissed`, and
+`blocked`; newly converted actions start as `open`. Status changes set
+`updated_at`, with `completed_at` populated for completed actions and
+`dismissed_at` populated for dismissed actions. Notes are stored as plain text
+metadata only.
+
+Conversion skips duplicates from the same `source_review_id` and
+`source_proposal_id`, records `created`, `duplicate_skipped`, `status_changed`,
+`notes_updated`, and `viewed` events, and saves batch metadata in
+`loop_improvement_action_batches`.
+
+Action queue reports are written under:
+
+```
+loop_improvement_action_reports/loop_improvement_actions_YYYYMMDD_HHMMSS.md
+```
+
+Safety: improvement actions are manual tracking records only. Conversion and
+action commands never execute suggested commands, call Ollama, create loops,
+create external jobs, apply proposals, mutate proposal status, commit, or mutate
+loop/agent/prompt/quality-gate/stop-condition definitions.
+
 # Loop Engineering — Stage 4.9
 
 ## What's new in 4.9 — Stage 4 Final Audit and Readiness
