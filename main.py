@@ -35,6 +35,7 @@ import loop_improvement_actions
 import loop_improvement_application_planner
 import loop_improvement_handoff
 import loop_improvement_handoff_review
+import loop_improvement_patch_dry_run
 import loop_improvement_patch_proposals
 import loop_improvement_review
 import loop_improvement_stage5_audit
@@ -127,6 +128,8 @@ COMMANDS:
   --loop-improvement-application-plans / --loop-improvement-application-plan ID
   --generate-loop-improvement-patch-proposal PLAN_ID [--save-report]
   --loop-improvement-patch-proposals / --loop-improvement-patch-proposal ID
+  --validate-loop-improvement-patch-proposal PROPOSAL_ID [--save-report]
+  --loop-improvement-patch-dry-runs / --loop-improvement-patch-dry-run ID
   --replay LOOP_ID            replay a prior loop
   --paused                    list paused external-agent loops
   --resume LOOP_ID [--external-completion-file PATH | --external-completion-text 'JSON'] [--commit]
@@ -5177,6 +5180,172 @@ def _cmd_loop_improvement_patch_proposal(args) -> int:
     return 0
 
 
+def _latest_loop_improvement_patch_dry_run_id(conn):
+    rows = database.list_loop_improvement_patch_dry_run_validations(conn, 1)
+    return rows[0]["id"] if rows else None
+
+
+def _patch_dry_run_markdown_path_display(path):
+    if not path:
+        return "(none)"
+    if not loop_improvement_patch_dry_run.is_markdown_report_path(path):
+        return f"invalid patch dry-run report path metadata: {path}"
+    if not os.path.exists(path):
+        return f"missing patch dry-run report path: {path}"
+    return path
+
+
+def _print_loop_improvement_patch_dry_run(validation, validation_id=None,
+                                          markdown_path=None):
+    _rule("LOOP IMPROVEMENT PATCH DRY-RUN VALIDATION")
+    if validation_id is not None:
+        print(f"Validation ID       : {validation_id}")
+    if markdown_path:
+        print(f"Markdown report     : {markdown_path}")
+    print(f"Generated at        : {validation.generated_at}")
+    print(f"Patch Proposal ID   : {validation.patch_proposal_id}")
+    print(f"Application Plan ID : {validation.application_plan_id}")
+    print(f"Overall status      : {validation.overall_status}")
+    print(f"Ready for approval  : {validation.ready_for_human_approval}")
+    print(f"Total checks        : {validation.total_checks}")
+    print(f"Passed              : {validation.passed_checks}")
+    print(f"Warnings            : {validation.warning_checks}")
+    print(f"Failed              : {validation.failed_checks}")
+    print(f"Generates patch     : {validation.generates_patch}")
+    print(f"Applies changes     : {validation.applies_changes}")
+    print(f"Executes commands   : {validation.executes_commands}")
+    print(f"Reads file contents : {validation.reads_file_contents}")
+
+    _rule("CHECKS")
+    if not validation.checks:
+        print("(none)")
+    for check in validation.checks:
+        print(f"- [{check.status}] {check.name}")
+        print(f"  message : {check.message}")
+        print(f"  evidence: {json.dumps(check.evidence, sort_keys=True)}")
+
+    _rule("BLOCKERS")
+    if not validation.blockers:
+        print("(none)")
+    for blocker in validation.blockers:
+        print(f"- {blocker}")
+
+    _rule("WARNINGS")
+    if not validation.warnings:
+        print("(none)")
+    for warning in validation.warnings:
+        print(f"- {warning}")
+
+    _rule("REQUIRED NEXT CONTROLS")
+    for control in validation.required_next_controls:
+        print(f"- {control}")
+
+    _rule("SAFETY")
+    for note in validation.safety_notes:
+        print(f"- {note}")
+
+
+def _cmd_validate_loop_improvement_patch_proposal(args) -> int:
+    if not args:
+        print("ERROR: --validate-loop-improvement-patch-proposal needs a PROPOSAL_ID",
+              file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    try:
+        proposal_id = _parse_id_or_latest(
+            conn,
+            args[0],
+            _latest_loop_improvement_patch_proposal_id,
+            "loop improvement patch proposal",
+        )
+    except (ValueError, TypeError):
+        print("ERROR: PROPOSAL_ID must be an integer or 'latest'", file=sys.stderr)
+        return 1
+    engine = loop_improvement_patch_dry_run.LoopImprovementPatchDryRunValidator(conn)
+    try:
+        validation = engine.validate_patch_proposal(proposal_id)
+        validation_id = engine.save_validation(validation)
+        markdown_path = None
+        if "--save-report" in args:
+            md = engine.save_markdown_report(validation_id, validation)
+            markdown_path = md.report_path
+    except ValueError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    except Exception as exc:
+        print(f"ERROR: loop improvement patch dry-run validation failed: {exc}",
+              file=sys.stderr)
+        return 1
+    _print_loop_improvement_patch_dry_run(
+        validation, validation_id=validation_id, markdown_path=markdown_path)
+    return 0 if validation.failed_checks == 0 else 2
+
+
+def _cmd_loop_improvement_patch_dry_runs(args) -> int:
+    limit = 20
+    if "--limit" in args:
+        try:
+            limit = int(_flag_val(args, "--limit"))
+        except (TypeError, ValueError):
+            print("ERROR: --limit needs an integer", file=sys.stderr)
+            return 1
+    conn = database.init_db()
+    rows = database.list_loop_improvement_patch_dry_run_validations(conn, limit)
+    _rule(f"LOOP IMPROVEMENT PATCH DRY-RUN VALIDATIONS ({len(rows)})")
+    if not rows:
+        print("(none)")
+        return 0
+    for row in rows:
+        md = database.get_loop_improvement_patch_dry_run_markdown_report(
+            conn, row["id"])
+        print(f"#{row['id']}  {row['generated_at']}  "
+              f"proposal={row['patch_proposal_id']} status={row['overall_status']} "
+              f"checks={row['total_checks']} failed={row['failed_checks']} "
+              f"generates_patch={bool(row['generates_patch'])} "
+              f"applies_changes={bool(row['applies_changes'])}")
+        if md is not None:
+            print(
+                "    markdown: "
+                f"{_patch_dry_run_markdown_path_display(md['report_path'])}"
+            )
+    return 0
+
+
+def _cmd_loop_improvement_patch_dry_run(args) -> int:
+    if not args:
+        print("ERROR: --loop-improvement-patch-dry-run needs a VALIDATION_ID",
+              file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    try:
+        validation_id = _parse_id_or_latest(
+            conn,
+            args[0],
+            _latest_loop_improvement_patch_dry_run_id,
+            "loop improvement patch dry-run validation",
+        )
+    except (ValueError, TypeError):
+        print("ERROR: VALIDATION_ID must be an integer or 'latest'", file=sys.stderr)
+        return 1
+    row = database.get_loop_improvement_patch_dry_run_validation(conn, validation_id)
+    if row is None:
+        print(f"ERROR: no loop improvement patch dry-run validation {args[0]}",
+              file=sys.stderr)
+        return 1
+    validation = loop_improvement_patch_dry_run.validation_from_row(row)
+    md = database.get_loop_improvement_patch_dry_run_markdown_report(
+        conn, row["id"])
+    _print_loop_improvement_patch_dry_run(
+        validation,
+        validation_id=row["id"],
+        markdown_path=(
+            _patch_dry_run_markdown_path_display(md["report_path"])
+            if md else None
+        ),
+    )
+    return 0
+
+
 def _cmd_archive_external_job(args, unarchive=False) -> int:
     import external_agent_jobs as eaj
     if not args:
@@ -6972,6 +7141,12 @@ def main() -> int:
         return _cmd_loop_improvement_patch_proposals(args[1:])
     if args and args[0] == "--loop-improvement-patch-proposal":
         return _cmd_loop_improvement_patch_proposal(args[1:])
+    if args and args[0] == "--validate-loop-improvement-patch-proposal":
+        return _cmd_validate_loop_improvement_patch_proposal(args[1:])
+    if args and args[0] == "--loop-improvement-patch-dry-runs":
+        return _cmd_loop_improvement_patch_dry_runs(args[1:])
+    if args and args[0] == "--loop-improvement-patch-dry-run":
+        return _cmd_loop_improvement_patch_dry_run(args[1:])
     if args and args[0] == "--replay":
         return _cmd_replay(args[1:])
     if args and args[0] == "--templates":

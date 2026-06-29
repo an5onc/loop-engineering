@@ -936,6 +936,61 @@ CREATE TABLE IF NOT EXISTS loop_improvement_patch_proposal_markdown_reports (
     FOREIGN KEY (patch_proposal_id) REFERENCES loop_improvement_patch_proposals(id)
 );
 
+CREATE TABLE IF NOT EXISTS loop_improvement_patch_dry_run_validations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    generated_at TEXT,
+    patch_proposal_id INTEGER NOT NULL,
+    application_plan_id INTEGER,
+    overall_status TEXT,
+    total_checks INTEGER,
+    passed_checks INTEGER,
+    warning_checks INTEGER,
+    failed_checks INTEGER,
+    ready_for_human_approval INTEGER,
+    blockers_json TEXT,
+    warnings_json TEXT,
+    safety_notes_json TEXT,
+    required_next_controls_json TEXT,
+    checks_json TEXT,
+    generates_patch INTEGER,
+    applies_changes INTEGER,
+    executes_commands INTEGER,
+    reads_file_contents INTEGER,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (patch_proposal_id) REFERENCES loop_improvement_patch_proposals(id)
+);
+
+CREATE TABLE IF NOT EXISTS loop_improvement_patch_dry_run_checks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    validation_id INTEGER NOT NULL,
+    check_name TEXT,
+    status TEXT,
+    message TEXT,
+    evidence_json TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (validation_id) REFERENCES loop_improvement_patch_dry_run_validations(id)
+);
+
+CREATE TABLE IF NOT EXISTS loop_improvement_patch_dry_run_validation_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    validation_id INTEGER NOT NULL,
+    event_type TEXT,
+    details_json TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (validation_id) REFERENCES loop_improvement_patch_dry_run_validations(id)
+);
+
+CREATE TABLE IF NOT EXISTS loop_improvement_patch_dry_run_markdown_reports (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    validation_id INTEGER NOT NULL,
+    report_path TEXT,
+    report_format TEXT,
+    content_hash TEXT,
+    bytes_written INTEGER,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (validation_id) REFERENCES loop_improvement_patch_dry_run_validations(id)
+);
+
 CREATE TABLE IF NOT EXISTS project_workspaces (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT UNIQUE,
@@ -3005,6 +3060,116 @@ def get_loop_improvement_patch_proposal_markdown_report(conn, patch_proposal_id)
 def list_loop_improvement_patch_proposal_markdown_reports(conn, limit=20):
     return conn.execute(
         "SELECT * FROM loop_improvement_patch_proposal_markdown_reports "
+        "ORDER BY id DESC LIMIT ?",
+        (limit,),
+    ).fetchall()
+
+
+def save_loop_improvement_patch_dry_run_validation(
+        conn, generated_at, patch_proposal_id, application_plan_id,
+        overall_status, total_checks, passed_checks, warning_checks,
+        failed_checks, ready_for_human_approval, blockers_json, warnings_json,
+        safety_notes_json, required_next_controls_json, checks_json,
+        generates_patch, applies_changes, executes_commands,
+        reads_file_contents) -> int:
+    cur = conn.execute(
+        "INSERT INTO loop_improvement_patch_dry_run_validations "
+        "(generated_at, patch_proposal_id, application_plan_id, overall_status, "
+        "total_checks, passed_checks, warning_checks, failed_checks, "
+        "ready_for_human_approval, blockers_json, warnings_json, "
+        "safety_notes_json, required_next_controls_json, checks_json, "
+        "generates_patch, applies_changes, executes_commands, reads_file_contents) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        (generated_at, patch_proposal_id, application_plan_id, overall_status,
+         total_checks, passed_checks, warning_checks, failed_checks,
+         1 if ready_for_human_approval else 0, blockers_json, warnings_json,
+         safety_notes_json, required_next_controls_json, checks_json,
+         1 if generates_patch else 0, 1 if applies_changes else 0,
+         1 if executes_commands else 0, 1 if reads_file_contents else 0),
+    )
+    conn.commit()
+    return cur.lastrowid
+
+
+def get_loop_improvement_patch_dry_run_validation(conn, validation_id):
+    return conn.execute(
+        "SELECT * FROM loop_improvement_patch_dry_run_validations WHERE id=?",
+        (validation_id,),
+    ).fetchone()
+
+
+def list_loop_improvement_patch_dry_run_validations(conn, limit=20):
+    return conn.execute(
+        "SELECT * FROM loop_improvement_patch_dry_run_validations "
+        "ORDER BY id DESC LIMIT ?",
+        (limit,),
+    ).fetchall()
+
+
+def save_loop_improvement_patch_dry_run_check(
+        conn, validation_id, check_name, status, message,
+        evidence_json) -> int:
+    cur = conn.execute(
+        "INSERT INTO loop_improvement_patch_dry_run_checks "
+        "(validation_id, check_name, status, message, evidence_json) "
+        "VALUES (?,?,?,?,?)",
+        (validation_id, check_name, status, message, evidence_json),
+    )
+    conn.commit()
+    return cur.lastrowid
+
+
+def list_loop_improvement_patch_dry_run_checks(conn, validation_id):
+    return conn.execute(
+        "SELECT * FROM loop_improvement_patch_dry_run_checks "
+        "WHERE validation_id=? ORDER BY id",
+        (validation_id,),
+    ).fetchall()
+
+
+def save_loop_improvement_patch_dry_run_validation_event(
+        conn, validation_id, event_type, details_json="{}") -> int:
+    cur = conn.execute(
+        "INSERT INTO loop_improvement_patch_dry_run_validation_events "
+        "(validation_id, event_type, details_json) VALUES (?,?,?)",
+        (validation_id, event_type, details_json),
+    )
+    conn.commit()
+    return cur.lastrowid
+
+
+def get_loop_improvement_patch_dry_run_validation_events(conn, validation_id):
+    return conn.execute(
+        "SELECT * FROM loop_improvement_patch_dry_run_validation_events "
+        "WHERE validation_id=? ORDER BY id",
+        (validation_id,),
+    ).fetchall()
+
+
+def save_loop_improvement_patch_dry_run_markdown_report(
+        conn, validation_id, report_path, report_format, content_hash,
+        bytes_written) -> int:
+    cur = conn.execute(
+        "INSERT INTO loop_improvement_patch_dry_run_markdown_reports "
+        "(validation_id, report_path, report_format, content_hash, bytes_written) "
+        "VALUES (?,?,?,?,?)",
+        (validation_id, report_path, report_format, content_hash, bytes_written),
+    )
+    conn.commit()
+    return cur.lastrowid
+
+
+def get_loop_improvement_patch_dry_run_markdown_report(conn, validation_id):
+    return conn.execute(
+        "SELECT * FROM loop_improvement_patch_dry_run_markdown_reports "
+        "WHERE validation_id=? ORDER BY id DESC LIMIT 1",
+        (validation_id,),
+    ).fetchone()
+
+
+def list_loop_improvement_patch_dry_run_markdown_reports(conn, limit=20):
+    return conn.execute(
+        "SELECT * FROM loop_improvement_patch_dry_run_markdown_reports "
         "ORDER BY id DESC LIMIT ?",
         (limit,),
     ).fetchall()

@@ -376,6 +376,44 @@ does not execute suggested commands, call Ollama, create loops, create external
 jobs, mutate handoffs, mutate improvement definitions, edit workspace files, or
 read protected file contents.
 
+# Loop Engineering - Stage 6.2
+
+## What's new in 6.2 - Dry-Run Patch Validator
+
+Stage 6.2 validates saved Stage 6.1 patch proposals before any future patch
+generation. It checks proposal eligibility, metadata-only safety flags, target
+file metadata, relative file allowlist rules, protected-path exclusions, human
+approval requirements, rollback requirements, and the no-command/no-file-content
+dry-run boundary.
+
+```bash
+python3 main.py --validate-loop-improvement-patch-proposal latest
+python3 main.py --validate-loop-improvement-patch-proposal latest --save-report
+python3 main.py --loop-improvement-patch-dry-runs
+python3 main.py --loop-improvement-patch-dry-run latest
+```
+
+Each dry-run validation is saved in
+`loop_improvement_patch_dry_run_validations` with child rows in
+`loop_improvement_patch_dry_run_checks` and an event log in
+`loop_improvement_patch_dry_run_validation_events`. Optional Markdown reports
+are written under:
+
+```
+loop_improvement_patch_dry_run_reports/loop_improvement_patch_dry_run_VALIDATIONID_YYYYMMDD_HHMMSS.md
+```
+
+Dry-run validations always record `generates_patch=false`,
+`applies_changes=false`, `executes_commands=false`, and
+`reads_file_contents=false`. A failed validation returns a non-zero CLI status
+after saving the validation record, so blockers remain auditable.
+
+Safety: Stage 6.2 uses saved patch-proposal metadata only. It does not read
+source file contents, generate patches, write patch files, edit files, execute
+commands, call Ollama, create loops, create external jobs, commit, apply
+improvements, mutate framework definitions, or execute suggested commands. It
+writes only dry-run validation metadata and optional Markdown reports.
+
 # Loop Engineering - Stage 6.1
 
 ## What's new in 6.1 - Patch Proposal Generator

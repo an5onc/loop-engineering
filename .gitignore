@@ -18,6 +18,7 @@ loop_improvement_handoff_review_reports/
 loop_improvement_stage5_audit_reports/
 loop_improvement_application_plan_reports/
 loop_improvement_patch_proposal_reports/
+loop_improvement_patch_dry_run_reports/
 external_agent_handoffs/
 external_agent_jobs/
 external_batch_reports/
