@@ -378,6 +378,52 @@ read protected file contents.
 
 # Loop Engineering - Stage 6.5
 
+## What's new in 6.7 - Improvement Outcome Tracker
+
+Stage 6.7 records deterministic outcome metadata after controlled
+self-improvement application and post-apply verification. It connects the saved
+metadata chain from application plan to patch proposal, dry-run validation,
+approval, application attempt, rollback snapshot, post-apply verification, and
+outcome record. It answers whether the improvement appears successful, whether
+verification passed, whether rollback is recommended, how risk changed, and what
+should be learned for future improvements.
+
+```bash
+python3 main.py --record-improvement-outcome latest
+python3 main.py --improvement-outcomes
+python3 main.py --improvement-outcome latest
+python3 main.py --improvement-outcome-report latest
+python3 main.py --improvement-outcome-report latest --save-report
+python3 main.py --set-improvement-outcome-status latest successful_with_warnings
+```
+
+Outcome statuses are `successful`, `successful_with_warnings`,
+`failed_verification`, `rollback_recommended`, `rolled_back`, `inconclusive`,
+`blocked`, and `deferred`. Missing or pending verification defaults to
+`inconclusive`. The deterministic success score ranges from 0 to 100 and is
+derived from verification status, rollback metadata, and metadata completeness.
+
+Signals include application attempt, approval, patch proposal, rollback
+snapshot, verification plan/report, verification pass/fail, rollback need,
+safety completeness, missing metadata, and manual follow-up. Manual status
+updates only update outcome metadata; they do not apply patches, rollback files,
+run commands, commit, or mutate framework definitions.
+
+Outcome records are saved in `improvement_outcome_records`; generated reports
+are saved in `improvement_outcome_reports`. Optional Markdown reports are
+written under:
+
+```
+improvement_outcome_reports/improvement_outcome_REPORTID_YYYYMMDD_HHMMSS.md
+```
+
+Safety: Stage 6.7 never executes commands, runs tests automatically, writes
+`command_results`, calls Ollama, applies patches, restores files, edits source
+files, creates loops, creates external jobs, imports completions, resumes jobs,
+commits, or mutates loop definitions, agent definitions, prompts, quality gates,
+stop conditions, workspace profiles, jobs, or workspace files. It reads metadata
+only and writes outcome metadata plus optional Markdown reports.
+
 ## What's new in 6.6 - Post-Apply Verification Runner
 
 Stage 6.6 creates metadata-only post-apply verification plans and reports for

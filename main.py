@@ -40,6 +40,7 @@ import loop_improvement_patch_application
 import loop_improvement_patch_dry_run
 import loop_improvement_patch_proposals
 import loop_improvement_post_apply_verification
+import loop_improvement_outcomes
 import loop_improvement_review
 import loop_improvement_stage5_audit
 import loop_improvement_rollback_snapshot
@@ -146,6 +147,10 @@ COMMANDS:
   --post-apply-verification-plans / --post-apply-verification-plan ID
   --post-apply-verification-report PLAN_ID [--save-report]
   --set-post-apply-verification-status ID manually_verified|failed|blocked|deferred
+  --record-improvement-outcome ATTEMPT_ID
+  --improvement-outcomes / --improvement-outcome ID
+  --improvement-outcome-report OUTCOME_ID [--save-report]
+  --set-improvement-outcome-status ID successful|successful_with_warnings|failed_verification|rollback_recommended|rolled_back|inconclusive|blocked|deferred
   --replay LOOP_ID            replay a prior loop
   --paused                    list paused external-agent loops
   --resume LOOP_ID [--external-completion-file PATH | --external-completion-text 'JSON'] [--commit]
@@ -6166,6 +6171,241 @@ def _cmd_set_post_apply_verification_status(args) -> int:
     return 0
 
 
+def _latest_improvement_outcome_id(conn):
+    rows = database.list_improvement_outcome_records(conn, limit=1)
+    return rows[0]["id"] if rows else None
+
+
+def _improvement_outcome_markdown_path_display(path):
+    if not path:
+        return "(none)"
+    if not loop_improvement_outcomes.is_markdown_report_path(path):
+        return f"invalid improvement outcome report path metadata: {path}"
+    if not os.path.exists(path):
+        return f"missing improvement outcome report path: {path}"
+    return path
+
+
+def _print_improvement_outcome(record, outcome_id=None):
+    _rule("IMPROVEMENT OUTCOME RECORD")
+    _rule("SUMMARY")
+    if outcome_id is not None:
+        print(f"Outcome ID          : {outcome_id}")
+    print(f"Application attempt : {record.application_attempt_id}")
+    print(f"Verification plan   : {record.verification_plan_id or '(none)'}")
+    print(f"Verification report : {record.verification_report_id or '(none)'}")
+    print(f"Patch Proposal ID   : {record.patch_proposal_id or '(none)'}")
+    print(f"Approval ID         : {record.approval_id or '(none)'}")
+    print(f"Application Plan ID : {record.application_plan_id or '(none)'}")
+    print(f"Outcome status      : {record.outcome_status}")
+    print(f"Success score       : {record.success_score}")
+    print(f"Risk before         : {record.risk_before}")
+    print(f"Risk after          : {record.risk_after}")
+    print(f"Verification status : {record.verification_status}")
+    print(f"Rollback status     : {record.rollback_status}")
+    print(f"Generated at        : {record.generated_at}")
+    print("Executes commands   : False")
+    print(f"Summary             : {record.summary}")
+
+    _rule("SIGNALS")
+    if not record.signals:
+        print("(none)")
+    for signal in record.signals:
+        print(f"- {signal.signal_type}")
+        print(f"  status  : {signal.status}")
+        print(f"  message : {signal.message}")
+        print(f"  evidence: {signal.evidence}")
+        print(f"  weight  : {signal.weight}")
+
+    _rule("LESSONS")
+    _print_lines(record.lessons)
+    _rule("FOLLOW-UP ACTIONS")
+    _print_lines(record.follow_up_actions)
+    _rule("WARNINGS")
+    _print_lines(record.warnings)
+    _rule("NEXT STEPS")
+    _print_lines(record.next_steps)
+
+
+def _print_improvement_outcome_report(report, report_id=None, markdown_path=None):
+    _rule("IMPROVEMENT OUTCOME REPORT")
+    _rule("SUMMARY")
+    if report_id is not None:
+        print(f"Report ID           : {report_id}")
+    if markdown_path:
+        print(f"Markdown report     : {markdown_path}")
+    print(f"Outcome ID          : {report.outcome_id}")
+    print(f"Overall status      : {report.overall_status}")
+    print(f"Generated at        : {report.generated_at}")
+    print("Executes commands   : False")
+    print(f"Summary             : {report.summary}")
+
+    _rule("SIGNALS")
+    if not report.signals:
+        print("(none)")
+    for signal in report.signals:
+        print(f"- {signal.signal_type} [{signal.status}] {signal.message}")
+        print(f"  evidence: {signal.evidence}")
+        print(f"  weight  : {signal.weight}")
+    _rule("LESSONS")
+    _print_lines(report.lessons)
+    _rule("FOLLOW-UP ACTIONS")
+    _print_lines(report.follow_up_actions)
+    _rule("WARNINGS")
+    _print_lines(report.warnings)
+    _rule("NEXT STEPS")
+    _print_lines(report.next_steps)
+
+
+def _print_lines(items):
+    if not items:
+        print("(none)")
+        return
+    for item in items:
+        print(f"- {item}")
+
+
+def _cmd_record_improvement_outcome(args) -> int:
+    if not args:
+        print("ERROR: --record-improvement-outcome needs an ATTEMPT_ID",
+              file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    try:
+        attempt_id = _parse_id_or_latest(
+            conn,
+            args[0],
+            _latest_loop_improvement_patch_application_attempt_id,
+            "loop improvement patch application attempt",
+        )
+    except (ValueError, TypeError):
+        print("ERROR: ATTEMPT_ID must be an integer or 'latest'", file=sys.stderr)
+        return 1
+    engine = loop_improvement_outcomes.LoopImprovementOutcomeEngine(conn)
+    try:
+        record = engine.create_outcome_record(attempt_id)
+        outcome_id = engine.save_outcome_record(record)
+    except ValueError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    except Exception as exc:
+        print(f"ERROR: improvement outcome recording failed: {exc}", file=sys.stderr)
+        return 1
+    _print_improvement_outcome(record, outcome_id=outcome_id)
+    return 0
+
+
+def _cmd_improvement_outcomes(args) -> int:
+    limit = 25
+    status = _flag_val(args, "--status")
+    if "--limit" in args:
+        try:
+            limit = int(_flag_val(args, "--limit"))
+        except (TypeError, ValueError):
+            print("ERROR: --limit needs an integer", file=sys.stderr)
+            return 1
+    conn = database.init_db()
+    rows = database.list_improvement_outcome_records(
+        conn, status=status, limit=limit)
+    _rule(f"IMPROVEMENT OUTCOMES ({len(rows)})")
+    if not rows:
+        print("(none)")
+        return 0
+    for row in rows:
+        print(f"#{row['id']}  {row['generated_at']}  "
+              f"attempt={row['application_attempt_id']} "
+              f"status={row['outcome_status']} score={row['success_score']} "
+              f"verification={row['verification_status']} "
+              f"rollback={row['rollback_status']}")
+    return 0
+
+
+def _cmd_improvement_outcome(args) -> int:
+    if not args:
+        print("ERROR: --improvement-outcome needs an OUTCOME_ID", file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    try:
+        outcome_id = _parse_id_or_latest(
+            conn, args[0], _latest_improvement_outcome_id,
+            "improvement outcome")
+    except (ValueError, TypeError):
+        print("ERROR: OUTCOME_ID must be an integer or 'latest'", file=sys.stderr)
+        return 1
+    row = database.get_improvement_outcome_record(conn, outcome_id)
+    if row is None:
+        print(f"ERROR: no improvement outcome {args[0]}", file=sys.stderr)
+        return 1
+    record = loop_improvement_outcomes.outcome_from_row(row)
+    _print_improvement_outcome(record, outcome_id=row["id"])
+    return 0
+
+
+def _cmd_improvement_outcome_report(args) -> int:
+    if not args:
+        print("ERROR: --improvement-outcome-report needs an OUTCOME_ID",
+              file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    try:
+        outcome_id = _parse_id_or_latest(
+            conn, args[0], _latest_improvement_outcome_id,
+            "improvement outcome")
+    except (ValueError, TypeError):
+        print("ERROR: OUTCOME_ID must be an integer or 'latest'", file=sys.stderr)
+        return 1
+    engine = loop_improvement_outcomes.LoopImprovementOutcomeEngine(conn)
+    try:
+        report = engine.create_report(outcome_id)
+        report_id = engine.save_report(report)
+        markdown_path = None
+        if "--save-report" in args:
+            md = engine.save_markdown_report(report_id, report)
+            markdown_path = md.report_path
+    except ValueError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    except Exception as exc:
+        print(f"ERROR: improvement outcome report failed: {exc}", file=sys.stderr)
+        return 1
+    _print_improvement_outcome_report(
+        report, report_id=report_id, markdown_path=markdown_path)
+    return 0
+
+
+def _cmd_set_improvement_outcome_status(args) -> int:
+    if len(args) < 2:
+        print("ERROR: --set-improvement-outcome-status needs OUTCOME_ID STATUS",
+              file=sys.stderr)
+        return 1
+    status = args[1]
+    if status not in loop_improvement_outcomes.OUTCOME_STATUSES:
+        print(
+            "ERROR: STATUS must be successful, successful_with_warnings, "
+            "failed_verification, rollback_recommended, rolled_back, "
+            "inconclusive, blocked, or deferred",
+            file=sys.stderr,
+        )
+        return 1
+    conn = database.init_db()
+    try:
+        outcome_id = _parse_id_or_latest(
+            conn, args[0], _latest_improvement_outcome_id,
+            "improvement outcome")
+    except (ValueError, TypeError):
+        print("ERROR: OUTCOME_ID must be an integer or 'latest'", file=sys.stderr)
+        return 1
+    if database.get_improvement_outcome_record(conn, outcome_id) is None:
+        print(f"ERROR: no improvement outcome {args[0]}", file=sys.stderr)
+        return 1
+    database.update_improvement_outcome_status(conn, outcome_id, status)
+    print(f"improvement outcome {outcome_id} status -> {status}")
+    print("No command was executed.")
+    print("No patch was applied.")
+    print("No rollback was performed.")
+    return 0
+
+
 def _cmd_archive_external_job(args, unarchive=False) -> int:
     import external_agent_jobs as eaj
     if not args:
@@ -7999,6 +8239,16 @@ def main() -> int:
         return _cmd_post_apply_verification_report(args[1:])
     if args and args[0] == "--set-post-apply-verification-status":
         return _cmd_set_post_apply_verification_status(args[1:])
+    if args and args[0] == "--record-improvement-outcome":
+        return _cmd_record_improvement_outcome(args[1:])
+    if args and args[0] == "--improvement-outcomes":
+        return _cmd_improvement_outcomes(args[1:])
+    if args and args[0] == "--improvement-outcome":
+        return _cmd_improvement_outcome(args[1:])
+    if args and args[0] == "--improvement-outcome-report":
+        return _cmd_improvement_outcome_report(args[1:])
+    if args and args[0] == "--set-improvement-outcome-status":
+        return _cmd_set_improvement_outcome_status(args[1:])
     if args and args[0] == "--replay":
         return _cmd_replay(args[1:])
     if args and args[0] == "--templates":

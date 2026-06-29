@@ -1189,6 +1189,58 @@ CREATE TABLE IF NOT EXISTS post_apply_verification_markdown_reports (
     FOREIGN KEY (verification_report_id) REFERENCES post_apply_verification_reports(id)
 );
 
+CREATE TABLE IF NOT EXISTS improvement_outcome_records (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    application_attempt_id INTEGER NOT NULL,
+    verification_plan_id INTEGER,
+    verification_report_id INTEGER,
+    patch_proposal_id INTEGER,
+    approval_id INTEGER,
+    application_plan_id INTEGER,
+    generated_at TEXT,
+    outcome_status TEXT,
+    success_score INTEGER,
+    risk_before TEXT,
+    risk_after TEXT,
+    verification_status TEXT,
+    rollback_status TEXT,
+    summary TEXT,
+    signals_json TEXT,
+    lessons_json TEXT,
+    follow_up_actions_json TEXT,
+    warnings_json TEXT,
+    next_steps_json TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT,
+    FOREIGN KEY (application_attempt_id) REFERENCES loop_improvement_patch_application_attempts(id)
+);
+
+CREATE TABLE IF NOT EXISTS improvement_outcome_reports (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    outcome_id INTEGER NOT NULL,
+    generated_at TEXT,
+    overall_status TEXT,
+    summary TEXT,
+    signals_json TEXT,
+    lessons_json TEXT,
+    follow_up_actions_json TEXT,
+    warnings_json TEXT,
+    next_steps_json TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (outcome_id) REFERENCES improvement_outcome_records(id)
+);
+
+CREATE TABLE IF NOT EXISTS improvement_outcome_markdown_reports (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    outcome_report_id INTEGER NOT NULL,
+    report_path TEXT,
+    report_format TEXT,
+    content_hash TEXT,
+    bytes_written INTEGER,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (outcome_report_id) REFERENCES improvement_outcome_reports(id)
+);
+
 CREATE TABLE IF NOT EXISTS project_workspaces (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT UNIQUE,
@@ -3717,6 +3769,14 @@ def list_post_apply_verification_plans(conn, status=None, limit=25):
     ).fetchall()
 
 
+def get_latest_post_apply_verification_plan_for_attempt(conn, attempt_id):
+    return conn.execute(
+        "SELECT * FROM post_apply_verification_plans "
+        "WHERE application_attempt_id=? ORDER BY id DESC LIMIT 1",
+        (attempt_id,),
+    ).fetchone()
+
+
 def update_post_apply_verification_status(conn, plan_id, status):
     conn.execute(
         "UPDATE post_apply_verification_plans "
@@ -3795,6 +3855,137 @@ def get_post_apply_verification_markdown_report(conn, report_id):
 def list_post_apply_verification_markdown_reports(conn, limit=20):
     return conn.execute(
         "SELECT * FROM post_apply_verification_markdown_reports "
+        "ORDER BY id DESC LIMIT ?",
+        (limit,),
+    ).fetchall()
+
+
+def get_latest_loop_improvement_rollback_snapshot_for_attempt(conn, attempt_id):
+    return conn.execute(
+        "SELECT * FROM loop_improvement_rollback_snapshots "
+        "WHERE application_attempt_id=? ORDER BY id DESC LIMIT 1",
+        (attempt_id,),
+    ).fetchone()
+
+
+def save_improvement_outcome_record(
+        conn, application_attempt_id, verification_plan_id,
+        verification_report_id, patch_proposal_id, approval_id,
+        application_plan_id, generated_at, outcome_status, success_score,
+        risk_before, risk_after, verification_status, rollback_status, summary,
+        signals_json, lessons_json, follow_up_actions_json, warnings_json,
+        next_steps_json) -> int:
+    cur = conn.execute(
+        "INSERT INTO improvement_outcome_records "
+        "(application_attempt_id, verification_plan_id, verification_report_id, "
+        "patch_proposal_id, approval_id, application_plan_id, generated_at, "
+        "outcome_status, success_score, risk_before, risk_after, "
+        "verification_status, rollback_status, summary, signals_json, "
+        "lessons_json, follow_up_actions_json, warnings_json, next_steps_json, "
+        "updated_at) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)",
+        (application_attempt_id, verification_plan_id, verification_report_id,
+         patch_proposal_id, approval_id, application_plan_id, generated_at,
+         outcome_status, success_score, risk_before, risk_after,
+         verification_status, rollback_status, summary, signals_json,
+         lessons_json, follow_up_actions_json, warnings_json, next_steps_json),
+    )
+    conn.commit()
+    return cur.lastrowid
+
+
+def get_improvement_outcome_record(conn, outcome_id):
+    return conn.execute(
+        "SELECT * FROM improvement_outcome_records WHERE id=?",
+        (outcome_id,),
+    ).fetchone()
+
+
+def list_improvement_outcome_records(conn, status=None, limit=25):
+    if status:
+        return conn.execute(
+            "SELECT * FROM improvement_outcome_records "
+            "WHERE outcome_status=? ORDER BY id DESC LIMIT ?",
+            (status, limit),
+        ).fetchall()
+    return conn.execute(
+        "SELECT * FROM improvement_outcome_records ORDER BY id DESC LIMIT ?",
+        (limit,),
+    ).fetchall()
+
+
+def update_improvement_outcome_status(conn, outcome_id, status):
+    conn.execute(
+        "UPDATE improvement_outcome_records "
+        "SET outcome_status=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
+        (status, outcome_id),
+    )
+    conn.commit()
+    return get_improvement_outcome_record(conn, outcome_id)
+
+
+def save_improvement_outcome_report(
+        conn, outcome_id, generated_at, overall_status, summary, signals_json,
+        lessons_json, follow_up_actions_json, warnings_json, next_steps_json) -> int:
+    cur = conn.execute(
+        "INSERT INTO improvement_outcome_reports "
+        "(outcome_id, generated_at, overall_status, summary, signals_json, "
+        "lessons_json, follow_up_actions_json, warnings_json, next_steps_json) "
+        "VALUES (?,?,?,?,?,?,?,?,?)",
+        (outcome_id, generated_at, overall_status, summary, signals_json,
+         lessons_json, follow_up_actions_json, warnings_json, next_steps_json),
+    )
+    conn.commit()
+    return cur.lastrowid
+
+
+def get_improvement_outcome_report(conn, report_id):
+    return conn.execute(
+        "SELECT * FROM improvement_outcome_reports WHERE id=?",
+        (report_id,),
+    ).fetchone()
+
+
+def get_latest_improvement_outcome_report_for_outcome(conn, outcome_id):
+    return conn.execute(
+        "SELECT * FROM improvement_outcome_reports "
+        "WHERE outcome_id=? ORDER BY id DESC LIMIT 1",
+        (outcome_id,),
+    ).fetchone()
+
+
+def list_improvement_outcome_reports(conn, limit=20):
+    return conn.execute(
+        "SELECT * FROM improvement_outcome_reports ORDER BY id DESC LIMIT ?",
+        (limit,),
+    ).fetchall()
+
+
+def save_improvement_outcome_markdown_report(
+        conn, outcome_report_id, report_path, report_format, content_hash,
+        bytes_written) -> int:
+    cur = conn.execute(
+        "INSERT INTO improvement_outcome_markdown_reports "
+        "(outcome_report_id, report_path, report_format, content_hash, "
+        "bytes_written) VALUES (?,?,?,?,?)",
+        (outcome_report_id, report_path, report_format, content_hash,
+         bytes_written),
+    )
+    conn.commit()
+    return cur.lastrowid
+
+
+def get_improvement_outcome_markdown_report(conn, report_id):
+    return conn.execute(
+        "SELECT * FROM improvement_outcome_markdown_reports "
+        "WHERE outcome_report_id=? ORDER BY id DESC LIMIT 1",
+        (report_id,),
+    ).fetchone()
+
+
+def list_improvement_outcome_markdown_reports(conn, limit=20):
+    return conn.execute(
+        "SELECT * FROM improvement_outcome_markdown_reports "
         "ORDER BY id DESC LIMIT ?",
         (limit,),
     ).fetchall()
