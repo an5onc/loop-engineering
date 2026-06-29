@@ -376,6 +376,45 @@ does not execute suggested commands, call Ollama, create loops, create external
 jobs, mutate handoffs, mutate improvement definitions, edit workspace files, or
 read protected file contents.
 
+# Loop Engineering — Stage 5.5
+
+## What's new in 5.5 — Stage 5 Final Audit and Stage 6 Readiness
+
+Stage 5.5 adds a final audit layer for the full Loop Improvement subsystem. It
+checks the improvement engine, proposal review, action conversion,
+implementation handoff, handoff review, safety baseline, and Stage 6 readiness
+without applying improvements or executing any suggested command.
+
+```bash
+python3 main.py --loop-improvement-stage5-audit
+python3 main.py --loop-improvement-stage5-audit --save-report
+python3 main.py --loop-improvement-stage5-audits
+python3 main.py --loop-improvement-stage5-audit-show latest
+```
+
+Each audit is saved in `loop_improvement_stage5_audits`. Optional Markdown
+reports are written under:
+
+```
+loop_improvement_stage5_audit_reports/loop_improvement_stage5_audit_AUDITID_YYYYMMDD_HHMMSS.md
+```
+
+The audit uses `PASS`, `WARN`, and `FAIL` checks. Overall status is `FAIL` if
+any section fails, `PASS WITH WARNINGS` when warnings remain, and `PASS` only
+when every check passes. Stage 6 readiness reports `ready: yes/no`, blockers,
+warnings, the recommended next stage, and required Stage 6 safety controls.
+
+Required Stage 6 safety controls are explicit human approval before applying any
+improvement, rollback planning for each applied framework change, audit logging
+for every decision and mutation, dry-run-first behavior, and preservation of
+filesystem, command, Git, workspace, approval, and external-agent safety gates.
+
+Safety: the Stage 5 audit reads SQLite metadata and generated artifact metadata
+only. It never calls Ollama, executes commands, creates loops, creates external
+jobs, imports completions, resumes jobs, commits, applies proposals, mutates
+actions or handoffs except audit metadata, mutates framework definitions, or
+reads protected file contents.
+
 # Loop Engineering — Stage 4.9
 
 ## What's new in 4.9 — Stage 4 Final Audit and Readiness
