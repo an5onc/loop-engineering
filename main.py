@@ -30,6 +30,8 @@ import observatory_action_handoff
 import observatory_action_handoff_review
 import observatory_action_review
 import observatory_drilldown
+import loop_improvement
+import loop_improvement_review
 import observatory_reports
 import observatory_remediation
 import observatory_stage4_audit
@@ -98,6 +100,13 @@ COMMANDS:
   --observatory-action-handoff-reviews / --observatory-action-handoff-review-show ID
   --observatory-stage4-audit [--save-report]
   --observatory-stage4-audits / --observatory-stage4-audit-show ID
+  --loop-improvements [--from-remediation | --from-failures | --save-report]
+  --loop-improvement-plans / --loop-improvement-plan ID
+  --loop-improvement-proposals / --loop-improvement-proposal ID
+  --set-loop-improvement-status ID accepted|rejected|deferred
+  --loop-improvement-review [--priority P | --target-type T | --status S]
+  --loop-improvement-reviews / --loop-improvement-review-show ID
+  --create-loop-improvement-actions REVIEW_ID   reserved safe no-op in Stage 5.1
   --replay LOOP_ID            replay a prior loop
   --paused                    list paused external-agent loops
   --resume LOOP_ID [--external-completion-file PATH | --external-completion-text 'JSON'] [--commit]
@@ -3456,6 +3465,474 @@ def _cmd_observatory_action_review_show(args) -> int:
     return 0
 
 
+def _improvement_args(args):
+    source_type = None
+    source_id = None
+    if "--action-review" in args:
+        source_type = "action_review"
+        val = _flag_val(args, "--action-review")
+        if not val:
+            raise ValueError("--action-review needs a REVIEW_ID")
+        source_id = int(val)
+    if "--from-remediation" in args:
+        source_type = "remediation_plan"
+        source_id = None
+    if "--remediation-plan" in args:
+        source_type = "remediation_plan"
+        val = _flag_val(args, "--remediation-plan")
+        if not val:
+            raise ValueError("--remediation-plan needs a PLAN_ID")
+        source_id = int(val)
+    if "--from-failures" in args:
+        source_type = "failure_drilldown"
+        source_id = None
+    if "--failure-drilldown" in args:
+        source_type = "failure_drilldown"
+        val = _flag_val(args, "--failure-drilldown")
+        if not val:
+            raise ValueError("--failure-drilldown needs a DRILLDOWN_ID")
+        source_id = int(val)
+    limit = 25
+    if "--limit" in args:
+        val = _flag_val(args, "--limit")
+        if not val:
+            raise ValueError("--limit needs an integer")
+        limit = int(val)
+    return {
+        "source_type": source_type,
+        "source_id": source_id,
+        "priority": _flag_val(args, "--priority"),
+        "target_type": _flag_val(args, "--target-type"),
+        "limit": limit,
+    }
+
+
+def _print_improvement_plan(plan, plan_id=None, markdown_path=None):
+    _rule("LOOP IMPROVEMENT PLAN")
+    if plan_id is not None:
+        print(f"Plan ID      : {plan_id}")
+    if markdown_path:
+        print(f"Markdown     : {markdown_path}")
+    _rule("SUMMARY")
+    print(f"Generated at : {plan.generated_at}")
+    print(f"Source type  : {plan.source_type}")
+    print(f"Source ID    : {plan.source_id}")
+    print(f"Total        : {plan.total_proposals}")
+    print(f"Urgent       : {plan.urgent_count}")
+    print(f"High         : {plan.high_count}")
+    print(f"Medium       : {plan.medium_count}")
+    print(f"Low          : {plan.low_count}")
+    print(f"Summary      : {plan.summary}")
+
+    _rule("PROPOSALS")
+    if not plan.proposals:
+        print("(none)")
+    for proposal in plan.proposals:
+        print(f"- ID {proposal.id}: [{proposal.priority}] "
+              f"{proposal.target_type}/{proposal.target_name}")
+        print(f"  title       : {proposal.title}")
+        print(f"  problem     : {proposal.problem_summary}")
+        print(f"  evidence    : {proposal.evidence or []}")
+        print(f"  change      : {proposal.proposed_change}")
+        print(f"  benefit     : {proposal.expected_benefit}")
+        print(f"  risk        : {proposal.risk_level}")
+        print(f"  effort      : {proposal.effort_level}")
+        print(f"  loops       : {proposal.affected_loop_ids or []}")
+        print(f"  actions     : {proposal.affected_action_ids or []}")
+        print(f"  remediation : {proposal.affected_remediation_plan_ids or []}")
+        print(f"  status      : {proposal.status}")
+
+    _rule("NEXT STEPS")
+    for step in plan.next_steps:
+        if plan_id is not None:
+            step = step.replace("PLAN_ID", str(plan_id))
+        first_proposal = plan.proposals[0].id if plan.proposals else "PROPOSAL_ID"
+        step = step.replace("PROPOSAL_ID", str(first_proposal))
+        print(f"- {step}")
+
+
+def _improvement_markdown_path_display(path):
+    if not path:
+        return "(none)"
+    if not loop_improvement.is_markdown_report_path(path):
+        return f"invalid improvement report path metadata: {path}"
+    if not os.path.exists(path):
+        return f"missing improvement report path: {path}"
+    return path
+
+
+def _cmd_loop_improvements(args) -> int:
+    try:
+        filters = _improvement_args(args)
+    except (ValueError, TypeError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    save_report = "--save-report" in args
+    conn = database.init_db()
+    engine = loop_improvement.LoopImprovementEngine(conn)
+    try:
+        plan = engine.build_plan(**filters)
+    except ValueError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    plan_id = engine.save_plan(plan, filters)
+    markdown_path = None
+    if save_report:
+        try:
+            md = engine.save_markdown_report(plan_id, plan)
+            markdown_path = md.report_path
+        except Exception as exc:
+            print(f"ERROR: loop improvement markdown failed: {exc}",
+                  file=sys.stderr)
+            return 1
+    _print_improvement_plan(plan, plan_id=plan_id, markdown_path=markdown_path)
+    return 0
+
+
+def _cmd_loop_improvement_plans(args) -> int:
+    limit = 20
+    if "--limit" in args:
+        try:
+            limit = int(_flag_val(args, "--limit"))
+        except (TypeError, ValueError):
+            print("ERROR: --limit needs an integer", file=sys.stderr)
+            return 1
+    conn = database.init_db()
+    rows = database.list_loop_improvement_plans(conn, limit)
+    _rule(f"LOOP IMPROVEMENT PLANS ({len(rows)})")
+    if not rows:
+        print("(none)")
+        return 0
+    for row in rows:
+        md = database.get_loop_improvement_markdown_report(conn, row["id"])
+        print(f"#{row['id']}  {row['generated_at']}  "
+              f"source={row['source_type']}:{row['source_id']} "
+              f"proposals={row['total_proposals']} urgent={row['urgent_count']} "
+              f"high={row['high_count']} medium={row['medium_count']} "
+              f"low={row['low_count']}")
+        print(f"    filters: {row['filters_json']}")
+        if md is not None:
+            print(f"    markdown: {_improvement_markdown_path_display(md['report_path'])}")
+    return 0
+
+
+def _latest_improvement_plan_id(conn):
+    rows = database.list_loop_improvement_plans(conn, 1)
+    return rows[0]["id"] if rows else None
+
+
+def _latest_improvement_proposal_id(conn):
+    rows = database.list_loop_improvement_proposals(conn, limit=1)
+    return rows[0]["id"] if rows else None
+
+
+def _cmd_loop_improvement_plan(args) -> int:
+    if not args:
+        print("ERROR: --loop-improvement-plan needs a PLAN_ID", file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    try:
+        plan_id = _parse_id_or_latest(
+            conn, args[0], _latest_improvement_plan_id, "loop improvement plan")
+    except ValueError:
+        print("ERROR: PLAN_ID must be an integer or 'latest'", file=sys.stderr)
+        return 1
+    row = database.get_loop_improvement_plan(conn, plan_id)
+    if row is None:
+        print(f"ERROR: no loop improvement plan {args[0]}", file=sys.stderr)
+        return 1
+    plan = loop_improvement.plan_from_row(row)
+    md = database.get_loop_improvement_markdown_report(conn, row["id"])
+    _print_improvement_plan(
+        plan,
+        plan_id=row["id"],
+        markdown_path=_improvement_markdown_path_display(md["report_path"]) if md else None,
+    )
+    return 0
+
+
+def _cmd_loop_improvement_proposals(args) -> int:
+    limit = 25
+    if "--limit" in args:
+        try:
+            limit = int(_flag_val(args, "--limit"))
+        except (TypeError, ValueError):
+            print("ERROR: --limit needs an integer", file=sys.stderr)
+            return 1
+    conn = database.init_db()
+    rows = database.list_loop_improvement_proposals(
+        conn,
+        status=_flag_val(args, "--status"),
+        priority=_flag_val(args, "--priority"),
+        target_type=_flag_val(args, "--target-type"),
+        limit=limit,
+    )
+    _rule(f"LOOP IMPROVEMENT PROPOSALS ({len(rows)})")
+    if not rows:
+        print("(none)")
+        return 0
+    for row in rows:
+        print(f"#{row['id']}  plan={row['plan_id']}  [{row['priority']}] "
+              f"{row['target_type']}/{row['target_name']}  status={row['status']}")
+        print(f"    title: {row['title']}")
+        print(f"    problem: {row['problem_summary']}")
+        print(f"    change: {row['proposed_change']}")
+    return 0
+
+
+def _cmd_loop_improvement_proposal(args) -> int:
+    if not args:
+        print("ERROR: --loop-improvement-proposal needs a PROPOSAL_ID", file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    try:
+        proposal_id = _parse_id_or_latest(
+            conn, args[0], _latest_improvement_proposal_id,
+            "loop improvement proposal")
+    except ValueError:
+        print("ERROR: PROPOSAL_ID must be an integer or 'latest'", file=sys.stderr)
+        return 1
+    row = database.get_loop_improvement_proposal(conn, proposal_id)
+    if row is None:
+        print(f"ERROR: no loop improvement proposal {args[0]}", file=sys.stderr)
+        return 1
+    proposal = loop_improvement.proposal_from_row(row)
+    _rule("LOOP IMPROVEMENT PROPOSAL")
+    print(f"ID          : {proposal.id}")
+    print(f"Plan ID     : {row['plan_id']}")
+    print(f"Priority    : {proposal.priority}")
+    print(f"Target type : {proposal.target_type}")
+    print(f"Target name : {proposal.target_name}")
+    print(f"Title       : {proposal.title}")
+    print(f"Problem     : {proposal.problem_summary}")
+    print(f"Evidence    : {proposal.evidence or []}")
+    print(f"Change      : {proposal.proposed_change}")
+    print(f"Benefit     : {proposal.expected_benefit}")
+    print(f"Risk        : {proposal.risk_level}")
+    print(f"Effort      : {proposal.effort_level}")
+    print(f"Loops       : {proposal.affected_loop_ids or []}")
+    print(f"Actions     : {proposal.affected_action_ids or []}")
+    print(f"Remediation : {proposal.affected_remediation_plan_ids or []}")
+    print(f"Status      : {proposal.status}")
+    return 0
+
+
+def _cmd_set_loop_improvement_status(args) -> int:
+    if len(args) < 2:
+        print("ERROR: --set-loop-improvement-status needs PROPOSAL_ID STATUS",
+              file=sys.stderr)
+        return 1
+    status = args[1]
+    if status not in loop_improvement.STATUSES:
+        print("ERROR: status must be proposed, accepted, rejected, deferred, "
+              "or converted_to_action", file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    try:
+        proposal_id = _parse_id_or_latest(
+            conn, args[0], _latest_improvement_proposal_id,
+            "loop improvement proposal")
+    except ValueError:
+        print("ERROR: PROPOSAL_ID must be an integer or 'latest'", file=sys.stderr)
+        return 1
+    if database.get_loop_improvement_proposal(conn, proposal_id) is None:
+        print(f"ERROR: no loop improvement proposal {args[0]}", file=sys.stderr)
+        return 1
+    database.update_loop_improvement_proposal_status(conn, proposal_id, status)
+    print(f"loop improvement proposal {proposal_id} status -> {status}")
+    print("proposal status was updated; no improvement was applied automatically")
+    return 0
+
+
+def _improvement_review_filters(args):
+    group_by = _flag_val(args, "--group-by") or "target_type"
+    limit = 25
+    if "--limit" in args:
+        val = _flag_val(args, "--limit")
+        if not val:
+            raise ValueError("--limit needs an integer")
+        limit = int(val)
+    return {
+        "status": _flag_val(args, "--status") or "proposed",
+        "priority": _flag_val(args, "--priority"),
+        "target_type": _flag_val(args, "--target-type"),
+        "group_by": group_by,
+        "limit": limit,
+    }
+
+
+def _print_improvement_review(report, review_id=None, group_by=None,
+                              markdown_path=None):
+    _rule("LOOP IMPROVEMENT PROPOSAL REVIEW")
+    if review_id is not None:
+        print(f"Review ID       : {review_id}")
+    if markdown_path:
+        print(f"Markdown        : {markdown_path}")
+    _rule("SUMMARY")
+    print(f"Generated at    : {report.generated_at}")
+    print(f"Proposals reviewed: {report.total_proposals_reviewed}")
+    print(f"Filters         : {report.filters_json}")
+    print(f"Group by        : {group_by or '(unknown)'}")
+
+    _rule("TOP PROPOSALS")
+    if not report.top_proposals:
+        print("(none)")
+    for item in report.top_proposals:
+        print(f"- proposal #{item.proposal_id} plan=#{item.plan_id} "
+              f"[{item.priority}] {item.target_type}/{item.target_name}")
+        print(f"  status      : {item.status}")
+        print(f"  score       : {item.review_score}")
+        print(f"  risk/effort : {item.risk_level} / {item.effort_level}")
+        print(f"  title       : {item.title}")
+        print(f"  problem     : {item.problem_summary}")
+        print(f"  change      : {item.proposed_change}")
+        print(f"  benefit     : {item.expected_benefit}")
+        print(f"  rationale   : {item.rationale}")
+        print(f"  decision    : {item.recommended_decision}")
+        print(f"  command     : {item.suggested_next_command}")
+
+    _rule("GROUPS")
+    if not report.groups:
+        print("(none)")
+    for group in report.groups:
+        print(f"- type={group.group_type} key={group.group_key} count={group.count}")
+        print(f"  proposals : {group.proposal_ids}")
+        print(f"  highest   : {group.highest_priority}")
+        print(f"  summary   : {group.summary}")
+        print(f"  next step : {group.recommended_next_step}")
+
+    _rule("RECOMMENDATIONS")
+    for cmd in report.recommendations:
+        if review_id is not None:
+            cmd = cmd.replace("REVIEW_ID", str(review_id))
+        print(f"- {cmd}")
+
+    _rule("NEXT STEPS")
+    for cmd in report.next_steps:
+        print(f"- {cmd}")
+
+
+def _improvement_review_markdown_path_display(path):
+    if not path:
+        return "(none)"
+    if not loop_improvement_review.is_markdown_report_path(path):
+        return f"invalid improvement review report path metadata: {path}"
+    if not os.path.exists(path):
+        return f"missing improvement review report path: {path}"
+    return path
+
+
+def _cmd_loop_improvement_review(args) -> int:
+    try:
+        filters = _improvement_review_filters(args)
+    except (ValueError, TypeError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    save_report = "--save-report" in args
+    conn = database.init_db()
+    engine = loop_improvement_review.LoopImprovementReviewEngine(conn)
+    try:
+        report = engine.build_report(**filters)
+    except ValueError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    review_id = engine.save_review(report, group_by=filters["group_by"])
+    markdown_path = None
+    if save_report:
+        try:
+            md = engine.save_markdown_report(review_id, report)
+            markdown_path = md.report_path
+        except Exception as exc:
+            print(f"ERROR: loop improvement review markdown failed: {exc}",
+                  file=sys.stderr)
+            return 1
+    _print_improvement_review(
+        report, review_id=review_id, group_by=filters["group_by"],
+        markdown_path=markdown_path)
+    return 0
+
+
+def _cmd_loop_improvement_reviews(args) -> int:
+    limit = 20
+    if "--limit" in args:
+        try:
+            limit = int(_flag_val(args, "--limit"))
+        except (TypeError, ValueError):
+            print("ERROR: --limit needs an integer", file=sys.stderr)
+            return 1
+    conn = database.init_db()
+    rows = database.list_loop_improvement_reviews(conn, limit)
+    _rule(f"LOOP IMPROVEMENT REVIEWS ({len(rows)})")
+    if not rows:
+        print("(none)")
+        return 0
+    for row in rows:
+        md = database.get_loop_improvement_review_markdown_report(conn, row["id"])
+        print(f"#{row['id']}  {row['generated_at']}  "
+              f"proposals={row['total_proposals_reviewed']} group_by={row['group_by']}")
+        print(f"    filters: {row['filters_json']}")
+        if md is not None:
+            print(f"    markdown: {_improvement_review_markdown_path_display(md['report_path'])}")
+    return 0
+
+
+def _latest_improvement_review_id(conn):
+    rows = database.list_loop_improvement_reviews(conn, 1)
+    return rows[0]["id"] if rows else None
+
+
+def _cmd_loop_improvement_review_show(args) -> int:
+    if not args:
+        print("ERROR: --loop-improvement-review-show needs a REVIEW_ID", file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    try:
+        review_id = _parse_id_or_latest(
+            conn, args[0], _latest_improvement_review_id,
+            "loop improvement review")
+    except ValueError:
+        print("ERROR: REVIEW_ID must be an integer or 'latest'", file=sys.stderr)
+        return 1
+    row = database.get_loop_improvement_review(conn, review_id)
+    if row is None:
+        print(f"ERROR: no loop improvement review {args[0]}", file=sys.stderr)
+        return 1
+    report = loop_improvement_review.report_from_row(row)
+    md = database.get_loop_improvement_review_markdown_report(conn, row["id"])
+    _print_improvement_review(
+        report,
+        review_id=row["id"],
+        group_by=row["group_by"],
+        markdown_path=_improvement_review_markdown_path_display(md["report_path"]) if md else None,
+    )
+    return 0
+
+
+def _cmd_create_loop_improvement_actions(args) -> int:
+    if not args:
+        print("ERROR: --create-loop-improvement-actions needs a REVIEW_ID",
+              file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    try:
+        review_id = _parse_id_or_latest(
+            conn, args[0], _latest_improvement_review_id,
+            "loop improvement review")
+    except ValueError:
+        print("ERROR: REVIEW_ID must be an integer or 'latest'", file=sys.stderr)
+        return 1
+    row = database.get_loop_improvement_review(conn, review_id)
+    if row is None:
+        print(f"ERROR: no loop improvement review {args[0]}", file=sys.stderr)
+        return 1
+    print(f"loop improvement review {review_id} inspected")
+    print("Stage 5.1 does not create action rows automatically.")
+    print("No loops, jobs, commands, or proposal statuses were changed.")
+    print("Use --loop-improvement-proposal PROPOSAL_ID and "
+          "--set-loop-improvement-status explicitly.")
+    return 0
+
+
 def _cmd_archive_external_job(args, unarchive=False) -> int:
     import external_agent_jobs as eaj
     if not args:
@@ -5187,6 +5664,26 @@ def main() -> int:
         return _cmd_observatory_action_reviews(args[1:])
     if args and args[0] == "--observatory-action-review-show":
         return _cmd_observatory_action_review_show(args[1:])
+    if args and args[0] == "--loop-improvements":
+        return _cmd_loop_improvements(args[1:])
+    if args and args[0] == "--loop-improvement-plans":
+        return _cmd_loop_improvement_plans(args[1:])
+    if args and args[0] == "--loop-improvement-plan":
+        return _cmd_loop_improvement_plan(args[1:])
+    if args and args[0] == "--loop-improvement-proposals":
+        return _cmd_loop_improvement_proposals(args[1:])
+    if args and args[0] == "--loop-improvement-proposal":
+        return _cmd_loop_improvement_proposal(args[1:])
+    if args and args[0] == "--set-loop-improvement-status":
+        return _cmd_set_loop_improvement_status(args[1:])
+    if args and args[0] == "--loop-improvement-review":
+        return _cmd_loop_improvement_review(args[1:])
+    if args and args[0] == "--loop-improvement-reviews":
+        return _cmd_loop_improvement_reviews(args[1:])
+    if args and args[0] == "--loop-improvement-review-show":
+        return _cmd_loop_improvement_review_show(args[1:])
+    if args and args[0] == "--create-loop-improvement-actions":
+        return _cmd_create_loop_improvement_actions(args[1:])
     if args and args[0] == "--replay":
         return _cmd_replay(args[1:])
     if args and args[0] == "--templates":

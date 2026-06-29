@@ -107,6 +107,106 @@ archived or cancelled jobs. New table `external_completion_inbox_events`; gate
 `external_completion_inbox_valid`; stop condition `external_completion_inbox_invalid`;
 metrics `external_completion_inbox_scanned/_pending_count/_imported_count/_failed_count`.
 
+# Loop Engineering — Stage 5.0
+
+## What's new in 5.0 — Loop Improvement Engine
+
+Stage 5.0 adds the **Loop Improvement Engine** foundation. It reads saved
+Observatory metadata and proposes safe, reviewable framework improvements for
+loops, agents, prompts, quality gates, stop conditions, external-agent flows,
+documentation, tests, and safety policy.
+
+```bash
+python3 main.py --loop-improvements
+python3 main.py --loop-improvements --from-remediation
+python3 main.py --loop-improvements --from-failures
+python3 main.py --loop-improvements --priority high
+python3 main.py --loop-improvements --target-type quality_gate
+python3 main.py --loop-improvements --save-report
+python3 main.py --loop-improvement-plans
+python3 main.py --loop-improvement-plan latest
+python3 main.py --loop-improvement-proposals
+python3 main.py --loop-improvement-proposal latest
+python3 main.py --set-loop-improvement-status latest accepted
+```
+
+Default source selection uses the latest action review when available, then the
+latest remediation plan, then the latest failure drilldown. Explicit source
+flags are available with `--action-review REVIEW_ID`, `--remediation-plan
+PLAN_ID`, and `--failure-drilldown DRILLDOWN_ID`.
+
+Supported proposal target types include `loop_definition`, `agent_definition`,
+`prompt`, `quality_gate`, `stop_condition`, `workspace_profile`,
+`external_agent_flow`, `observatory_flow`, `documentation`, `testing`,
+`safety_policy`, and `unknown`. Proposal statuses are `proposed`, `accepted`,
+`rejected`, `deferred`, and `converted_to_action`.
+
+Each generated plan is saved in `loop_improvement_plans`; each proposal is saved
+in `loop_improvement_proposals`. Optional Markdown reports are written under:
+
+```
+loop_improvement_reports/loop_improvements_<plan_id>_YYYYMMDD_HHMMSS.md
+```
+
+Safety: improvement plans are proposals only. They are not applied
+automatically, status changes only update proposal metadata, and the engine never
+executes commands, calls Ollama, mutates loop/agent/prompt/gate/stop-condition
+definitions, creates external jobs, imports completions, resumes jobs, commits,
+or reads protected file contents. The only writes are improvement metadata and
+optional Markdown reports inside `loop_improvement_reports/`.
+
+# Loop Engineering — Stage 5.1
+
+## What's new in 5.1 — Loop Improvement Proposal Review
+
+Stage 5.1 adds a deterministic review layer for saved improvement proposals.
+It scores and groups proposals so operators can decide which items to accept,
+defer, reject, or prepare for later manual action.
+
+```bash
+python3 main.py --loop-improvement-review
+python3 main.py --loop-improvement-review --priority high
+python3 main.py --loop-improvement-review --target-type quality_gate
+python3 main.py --loop-improvement-review --group-by risk
+python3 main.py --loop-improvement-review --save-report
+python3 main.py --loop-improvement-reviews
+python3 main.py --loop-improvement-review-show latest
+```
+
+Default review settings are `--status proposed`, `--group-by target_type`, and
+`--limit 25`. Review filters include `--priority`, `--target-type`, `--status`,
+and `--limit`. Grouping supports `target_type`, `priority`, `status`, and
+`risk`.
+
+Review scoring is deterministic. It considers priority, target type, proposal
+status, risk, effort, affected loops/actions/remediation plans, and high-signal
+targets such as `safety_policy`, `quality_gate`, `stop_condition`, `prompt`,
+`testing`, and `external_agent_flow`.
+
+Recommended decisions are `accept`, `defer`, `reject`, `convert_to_action`, and
+`needs_more_evidence`. These are advisory only; proposal status changes still
+require explicit commands such as:
+
+```bash
+python3 main.py --set-loop-improvement-status 12 accepted
+python3 main.py --set-loop-improvement-status 12 deferred
+python3 main.py --set-loop-improvement-status 12 rejected
+```
+
+Each generated review is saved in `loop_improvement_reviews`. Optional Markdown
+reports are written under:
+
+```
+loop_improvement_review_reports/loop_improvement_review_<review_id>_YYYYMMDD_HHMMSS.md
+```
+
+Safety: proposal review never applies proposals automatically, executes
+commands, calls Ollama, creates loops, creates external jobs, imports
+completions, resumes jobs, commits, mutates definitions, or reads protected file
+contents. It reads improvement proposal metadata only and writes only review
+metadata plus optional Markdown reports inside
+`loop_improvement_review_reports/`.
+
 # Loop Engineering — Stage 4.9
 
 ## What's new in 4.9 — Stage 4 Final Audit and Readiness
