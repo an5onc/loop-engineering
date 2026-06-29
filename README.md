@@ -376,6 +376,44 @@ does not execute suggested commands, call Ollama, create loops, create external
 jobs, mutate handoffs, mutate improvement definitions, edit workspace files, or
 read protected file contents.
 
+# Loop Engineering - Stage 6.0
+
+## What's new in 6.0 - Approved Improvement Application Planner
+
+Stage 6.0 starts Controlled Self-Improvement with a metadata-only application
+planner. It reads reviewed Loop Improvement actions, handoffs, or handoff
+reviews and creates a structured application plan for a future human-controlled
+patch workflow.
+
+```bash
+python3 main.py --plan-loop-improvement-application latest
+python3 main.py --plan-loop-improvement-application latest --source-type handoff
+python3 main.py --plan-loop-improvement-application latest --source-type handoff_review --save-report
+python3 main.py --loop-improvement-application-plans
+python3 main.py --loop-improvement-application-plan latest
+```
+
+Each application plan is saved in `loop_improvement_application_plans` with
+child rows in `loop_improvement_application_plan_items` and an event log in
+`loop_improvement_application_plan_events`. Optional Markdown reports are
+written under:
+
+```
+loop_improvement_application_plan_reports/loop_improvement_application_plan_PLANID_YYYYMMDD_HHMMSS.md
+```
+
+Application plans include target file lists, patch intent summaries, risk
+assessments, required approvals, rollback requirements, validation
+requirements, safety notes, and manual next commands. Plans always record
+`generates_patch=false` and `applies_changes=false`.
+
+Safety: Stage 6.0 does not generate patches, edit files, execute commands, call
+Ollama, create loops, create external jobs, commit, apply improvements, mutate
+loop definitions, mutate agent definitions, mutate prompts, mutate quality
+gates, mutate stop conditions, mutate workspace profiles, or execute suggested
+handoff commands. It writes only application-plan metadata and optional Markdown
+reports.
+
 # Loop Engineering — Stage 5.5
 
 ## What's new in 5.5 — Stage 5 Final Audit and Stage 6 Readiness

@@ -32,6 +32,7 @@ import observatory_action_review
 import observatory_drilldown
 import loop_improvement
 import loop_improvement_actions
+import loop_improvement_application_planner
 import loop_improvement_handoff
 import loop_improvement_handoff_review
 import loop_improvement_review
@@ -121,6 +122,8 @@ COMMANDS:
   --loop-improvement-handoff-reviews / --loop-improvement-handoff-review-show ID
   --loop-improvement-stage5-audit [--save-report]
   --loop-improvement-stage5-audits / --loop-improvement-stage5-audit-show ID
+  --plan-loop-improvement-application SOURCE_ID [--source-type action|handoff|handoff_review] [--save-report]
+  --loop-improvement-application-plans / --loop-improvement-application-plan ID
   --replay LOOP_ID            replay a prior loop
   --paused                    list paused external-agent loops
   --resume LOOP_ID [--external-completion-file PATH | --external-completion-text 'JSON'] [--commit]
@@ -4803,6 +4806,195 @@ def _cmd_loop_improvement_stage5_audit_show(args) -> int:
     return 0
 
 
+def _latest_loop_improvement_application_plan_id(conn):
+    rows = database.list_loop_improvement_application_plans(conn, 1)
+    return rows[0]["id"] if rows else None
+
+
+def _latest_loop_improvement_application_source_id(conn, source_type):
+    if source_type == "action":
+        return _latest_improvement_action_id(conn)
+    if source_type == "handoff":
+        return _latest_loop_improvement_handoff_id(conn)
+    if source_type == "handoff_review":
+        return _latest_loop_improvement_handoff_review_id(conn)
+    raise ValueError(f"unknown application plan source type '{source_type}'")
+
+
+def _application_plan_markdown_path_display(path):
+    if not path:
+        return "(none)"
+    if not loop_improvement_application_planner.is_markdown_report_path(path):
+        return f"invalid application plan report path metadata: {path}"
+    if not os.path.exists(path):
+        return f"missing application plan report path: {path}"
+    return path
+
+
+def _print_loop_improvement_application_plan(plan, plan_id=None,
+                                             markdown_path=None):
+    _rule("LOOP IMPROVEMENT APPLICATION PLAN")
+    if plan_id is not None:
+        print(f"Application Plan ID : {plan_id}")
+    if markdown_path:
+        print(f"Markdown report     : {markdown_path}")
+    print(f"Generated at        : {plan.generated_at}")
+    print(f"Source              : {plan.source_type} #{plan.source_id}")
+    print(f"Status              : {plan.status}")
+    print(f"Total items         : {plan.total_items}")
+    print(f"Generates patch     : {plan.generates_patch}")
+    print(f"Applies changes     : {plan.applies_changes}")
+    print(f"Risk assessment     : {plan.risk_assessment}")
+
+    _rule("TARGET FILES")
+    if not plan.target_files:
+        print("(none)")
+    for path in plan.target_files:
+        print(f"- {path}")
+
+    _rule("PATCH INTENT")
+    print(plan.patch_intent_summary or "(none)")
+
+    _rule("ITEMS")
+    if not plan.items:
+        print("(none)")
+    for item in plan.items:
+        print(f"- action #{item.source_action_id} "
+              f"handoff={item.source_handoff_id or '(none)'} "
+              f"{item.target_type}/{item.target_name}")
+        print(f"  risk   : {item.risk_level}")
+        print(f"  files  : {', '.join(item.target_files) or '(none)'}")
+        print(f"  intent : {item.patch_intent_summary}")
+
+    _rule("REQUIRED APPROVALS")
+    for approval in plan.required_approvals:
+        print(f"- {approval}")
+
+    _rule("ROLLBACK REQUIREMENTS")
+    for requirement in plan.rollback_requirements:
+        print(f"- {requirement}")
+
+    _rule("VALIDATION REQUIREMENTS")
+    for requirement in plan.validation_requirements:
+        print(f"- {requirement}")
+
+    _rule("SAFETY")
+    for note in plan.safety_notes:
+        print(f"- {note}")
+
+    _rule("RECOMMENDED NEXT COMMANDS")
+    for command in plan.recommended_next_commands:
+        if plan_id is not None:
+            command = command.replace("PLAN_ID", str(plan_id))
+        print(f"- {command}")
+
+
+def _cmd_plan_loop_improvement_application(args) -> int:
+    if not args:
+        print("ERROR: --plan-loop-improvement-application needs a SOURCE_ID",
+              file=sys.stderr)
+        return 1
+    source_type = _flag_val(args, "--source-type") or "action"
+    if source_type not in loop_improvement_application_planner.SOURCE_TYPES:
+        print("ERROR: --source-type must be action, handoff, or handoff_review",
+              file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    try:
+        source_id = _parse_id_or_latest(
+            conn,
+            args[0],
+            lambda c: _latest_loop_improvement_application_source_id(c, source_type),
+            f"loop improvement {source_type}",
+        )
+    except (ValueError, TypeError):
+        print("ERROR: SOURCE_ID must be an integer or 'latest'", file=sys.stderr)
+        return 1
+    engine = loop_improvement_application_planner.LoopImprovementApplicationPlanner(conn)
+    try:
+        plan = engine.build_plan(source_type=source_type, source_id=source_id)
+        plan_id = engine.save_plan(plan)
+        markdown_path = None
+        if "--save-report" in args:
+            md = engine.save_markdown_report(plan_id, plan)
+            markdown_path = md.report_path
+    except ValueError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    except Exception as exc:
+        print(f"ERROR: loop improvement application planning failed: {exc}",
+              file=sys.stderr)
+        return 1
+    _print_loop_improvement_application_plan(
+        plan, plan_id=plan_id, markdown_path=markdown_path)
+    return 0
+
+
+def _cmd_loop_improvement_application_plans(args) -> int:
+    limit = 20
+    if "--limit" in args:
+        try:
+            limit = int(_flag_val(args, "--limit"))
+        except (TypeError, ValueError):
+            print("ERROR: --limit needs an integer", file=sys.stderr)
+            return 1
+    conn = database.init_db()
+    rows = database.list_loop_improvement_application_plans(conn, limit)
+    _rule(f"LOOP IMPROVEMENT APPLICATION PLANS ({len(rows)})")
+    if not rows:
+        print("(none)")
+        return 0
+    for row in rows:
+        md = database.get_loop_improvement_application_plan_markdown_report(
+            conn, row["id"])
+        print(f"#{row['id']}  {row['generated_at']}  "
+              f"source={row['source_type']}:{row['source_id']} "
+              f"status={row['status']} items={row['total_items']} "
+              f"generates_patch={bool(row['generates_patch'])} "
+              f"applies_changes={bool(row['applies_changes'])}")
+        print(f"    targets: {row['target_files_json']}")
+        if md is not None:
+            print(
+                "    markdown: "
+                f"{_application_plan_markdown_path_display(md['report_path'])}"
+            )
+    return 0
+
+
+def _cmd_loop_improvement_application_plan(args) -> int:
+    if not args:
+        print("ERROR: --loop-improvement-application-plan needs a PLAN_ID",
+              file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    try:
+        plan_id = _parse_id_or_latest(
+            conn,
+            args[0],
+            _latest_loop_improvement_application_plan_id,
+            "loop improvement application plan",
+        )
+    except (ValueError, TypeError):
+        print("ERROR: PLAN_ID must be an integer or 'latest'", file=sys.stderr)
+        return 1
+    row = database.get_loop_improvement_application_plan(conn, plan_id)
+    if row is None:
+        print(f"ERROR: no loop improvement application plan {args[0]}",
+              file=sys.stderr)
+        return 1
+    plan = loop_improvement_application_planner.plan_from_row(row)
+    md = database.get_loop_improvement_application_plan_markdown_report(conn, row["id"])
+    _print_loop_improvement_application_plan(
+        plan,
+        plan_id=row["id"],
+        markdown_path=(
+            _application_plan_markdown_path_display(md["report_path"])
+            if md else None
+        ),
+    )
+    return 0
+
+
 def _cmd_archive_external_job(args, unarchive=False) -> int:
     import external_agent_jobs as eaj
     if not args:
@@ -6586,6 +6778,12 @@ def main() -> int:
         return _cmd_loop_improvement_stage5_audits(args[1:])
     if args and args[0] == "--loop-improvement-stage5-audit-show":
         return _cmd_loop_improvement_stage5_audit_show(args[1:])
+    if args and args[0] == "--plan-loop-improvement-application":
+        return _cmd_plan_loop_improvement_application(args[1:])
+    if args and args[0] == "--loop-improvement-application-plans":
+        return _cmd_loop_improvement_application_plans(args[1:])
+    if args and args[0] == "--loop-improvement-application-plan":
+        return _cmd_loop_improvement_application_plan(args[1:])
     if args and args[0] == "--replay":
         return _cmd_replay(args[1:])
     if args and args[0] == "--templates":

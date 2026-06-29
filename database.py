@@ -806,6 +806,71 @@ CREATE TABLE IF NOT EXISTS loop_improvement_stage5_audit_markdown_reports (
     FOREIGN KEY (stage5_audit_id) REFERENCES loop_improvement_stage5_audits(id)
 );
 
+CREATE TABLE IF NOT EXISTS loop_improvement_application_plans (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    generated_at TEXT,
+    source_type TEXT,
+    source_id INTEGER,
+    source_action_id INTEGER,
+    source_handoff_id INTEGER,
+    source_handoff_review_id INTEGER,
+    source_proposal_id INTEGER,
+    source_plan_id INTEGER,
+    status TEXT,
+    total_items INTEGER,
+    target_files_json TEXT,
+    patch_intent_summary TEXT,
+    risk_assessment TEXT,
+    required_approvals_json TEXT,
+    rollback_requirements_json TEXT,
+    validation_requirements_json TEXT,
+    safety_notes_json TEXT,
+    recommended_next_commands_json TEXT,
+    items_json TEXT,
+    generates_patch INTEGER,
+    applies_changes INTEGER,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS loop_improvement_application_plan_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    application_plan_id INTEGER NOT NULL,
+    source_action_id INTEGER,
+    source_handoff_id INTEGER,
+    source_proposal_id INTEGER,
+    source_plan_id INTEGER,
+    target_type TEXT,
+    target_name TEXT,
+    target_files_json TEXT,
+    patch_intent_summary TEXT,
+    risk_level TEXT,
+    required_approvals_json TEXT,
+    rollback_requirements_json TEXT,
+    validation_requirements_json TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (application_plan_id) REFERENCES loop_improvement_application_plans(id)
+);
+
+CREATE TABLE IF NOT EXISTS loop_improvement_application_plan_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    application_plan_id INTEGER NOT NULL,
+    event_type TEXT,
+    details_json TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (application_plan_id) REFERENCES loop_improvement_application_plans(id)
+);
+
+CREATE TABLE IF NOT EXISTS loop_improvement_application_plan_markdown_reports (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    application_plan_id INTEGER NOT NULL,
+    report_path TEXT,
+    report_format TEXT,
+    content_hash TEXT,
+    bytes_written INTEGER,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (application_plan_id) REFERENCES loop_improvement_application_plans(id)
+);
+
 CREATE TABLE IF NOT EXISTS project_workspaces (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT UNIQUE,
@@ -2629,6 +2694,129 @@ def get_loop_improvement_stage5_audit_markdown_report(conn, audit_id):
 def list_loop_improvement_stage5_audit_markdown_reports(conn, limit=20):
     return conn.execute(
         "SELECT * FROM loop_improvement_stage5_audit_markdown_reports "
+        "ORDER BY id DESC LIMIT ?",
+        (limit,),
+    ).fetchall()
+
+
+def save_loop_improvement_application_plan(
+        conn, generated_at, source_type, source_id, source_action_id,
+        source_handoff_id, source_handoff_review_id, source_proposal_id,
+        source_plan_id, status, total_items, target_files_json,
+        patch_intent_summary, risk_assessment, required_approvals_json,
+        rollback_requirements_json, validation_requirements_json,
+        safety_notes_json, recommended_next_commands_json, items_json,
+        generates_patch, applies_changes) -> int:
+    cur = conn.execute(
+        "INSERT INTO loop_improvement_application_plans "
+        "(generated_at, source_type, source_id, source_action_id, "
+        "source_handoff_id, source_handoff_review_id, source_proposal_id, "
+        "source_plan_id, status, total_items, target_files_json, "
+        "patch_intent_summary, risk_assessment, required_approvals_json, "
+        "rollback_requirements_json, validation_requirements_json, "
+        "safety_notes_json, recommended_next_commands_json, items_json, "
+        "generates_patch, applies_changes) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        (generated_at, source_type, source_id, source_action_id, source_handoff_id,
+         source_handoff_review_id, source_proposal_id, source_plan_id, status,
+         total_items, target_files_json, patch_intent_summary, risk_assessment,
+         required_approvals_json, rollback_requirements_json,
+         validation_requirements_json, safety_notes_json,
+         recommended_next_commands_json, items_json, 1 if generates_patch else 0,
+         1 if applies_changes else 0),
+    )
+    conn.commit()
+    return cur.lastrowid
+
+
+def get_loop_improvement_application_plan(conn, application_plan_id):
+    return conn.execute(
+        "SELECT * FROM loop_improvement_application_plans WHERE id=?",
+        (application_plan_id,),
+    ).fetchone()
+
+
+def list_loop_improvement_application_plans(conn, limit=20):
+    return conn.execute(
+        "SELECT * FROM loop_improvement_application_plans ORDER BY id DESC LIMIT ?",
+        (limit,),
+    ).fetchall()
+
+
+def save_loop_improvement_application_plan_item(
+        conn, application_plan_id, source_action_id, source_handoff_id,
+        source_proposal_id, source_plan_id, target_type, target_name,
+        target_files_json, patch_intent_summary, risk_level,
+        required_approvals_json, rollback_requirements_json,
+        validation_requirements_json) -> int:
+    cur = conn.execute(
+        "INSERT INTO loop_improvement_application_plan_items "
+        "(application_plan_id, source_action_id, source_handoff_id, "
+        "source_proposal_id, source_plan_id, target_type, target_name, "
+        "target_files_json, patch_intent_summary, risk_level, "
+        "required_approvals_json, rollback_requirements_json, "
+        "validation_requirements_json) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        (application_plan_id, source_action_id, source_handoff_id,
+         source_proposal_id, source_plan_id, target_type, target_name,
+         target_files_json, patch_intent_summary, risk_level,
+         required_approvals_json, rollback_requirements_json,
+         validation_requirements_json),
+    )
+    conn.commit()
+    return cur.lastrowid
+
+
+def list_loop_improvement_application_plan_items(conn, application_plan_id):
+    return conn.execute(
+        "SELECT * FROM loop_improvement_application_plan_items "
+        "WHERE application_plan_id=? ORDER BY id",
+        (application_plan_id,),
+    ).fetchall()
+
+
+def save_loop_improvement_application_plan_event(
+        conn, application_plan_id, event_type, details_json="{}") -> int:
+    cur = conn.execute(
+        "INSERT INTO loop_improvement_application_plan_events "
+        "(application_plan_id, event_type, details_json) VALUES (?,?,?)",
+        (application_plan_id, event_type, details_json),
+    )
+    conn.commit()
+    return cur.lastrowid
+
+
+def get_loop_improvement_application_plan_events(conn, application_plan_id):
+    return conn.execute(
+        "SELECT * FROM loop_improvement_application_plan_events "
+        "WHERE application_plan_id=? ORDER BY id",
+        (application_plan_id,),
+    ).fetchall()
+
+
+def save_loop_improvement_application_plan_markdown_report(
+        conn, application_plan_id, report_path, report_format, content_hash,
+        bytes_written) -> int:
+    cur = conn.execute(
+        "INSERT INTO loop_improvement_application_plan_markdown_reports "
+        "(application_plan_id, report_path, report_format, content_hash, bytes_written) "
+        "VALUES (?,?,?,?,?)",
+        (application_plan_id, report_path, report_format, content_hash, bytes_written),
+    )
+    conn.commit()
+    return cur.lastrowid
+
+
+def get_loop_improvement_application_plan_markdown_report(conn, application_plan_id):
+    return conn.execute(
+        "SELECT * FROM loop_improvement_application_plan_markdown_reports "
+        "WHERE application_plan_id=? ORDER BY id DESC LIMIT 1",
+        (application_plan_id,),
+    ).fetchone()
+
+
+def list_loop_improvement_application_plan_markdown_reports(conn, limit=20):
+    return conn.execute(
+        "SELECT * FROM loop_improvement_application_plan_markdown_reports "
         "ORDER BY id DESC LIMIT ?",
         (limit,),
     ).fetchall()
