@@ -757,6 +757,30 @@ CREATE TABLE IF NOT EXISTS loop_improvement_handoff_packets (
     FOREIGN KEY (action_id) REFERENCES loop_improvement_action_items(id)
 );
 
+CREATE TABLE IF NOT EXISTS loop_improvement_handoff_reviews (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    generated_at TEXT,
+    filters_json TEXT,
+    group_by TEXT,
+    total_handoffs_reviewed INTEGER,
+    groups_json TEXT,
+    items_json TEXT,
+    recommendations_json TEXT,
+    next_steps_json TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS loop_improvement_handoff_review_markdown_reports (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    handoff_review_id INTEGER NOT NULL,
+    report_path TEXT,
+    report_format TEXT,
+    content_hash TEXT,
+    bytes_written INTEGER,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (handoff_review_id) REFERENCES loop_improvement_handoff_reviews(id)
+);
+
 CREATE TABLE IF NOT EXISTS project_workspaces (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT UNIQUE,
@@ -2462,6 +2486,64 @@ def get_loop_improvement_handoff_packet(conn, handoff_id):
 def list_loop_improvement_handoff_packets(conn, limit=20):
     return conn.execute(
         "SELECT * FROM loop_improvement_handoff_packets ORDER BY id DESC LIMIT ?",
+        (limit,),
+    ).fetchall()
+
+
+def save_loop_improvement_handoff_review(conn, generated_at, filters_json, group_by,
+                                         total_handoffs_reviewed, groups_json,
+                                         items_json, recommendations_json,
+                                         next_steps_json) -> int:
+    cur = conn.execute(
+        "INSERT INTO loop_improvement_handoff_reviews "
+        "(generated_at, filters_json, group_by, total_handoffs_reviewed, "
+        "groups_json, items_json, recommendations_json, next_steps_json) "
+        "VALUES (?,?,?,?,?,?,?,?)",
+        (generated_at, filters_json, group_by, total_handoffs_reviewed,
+         groups_json, items_json, recommendations_json, next_steps_json),
+    )
+    conn.commit()
+    return cur.lastrowid
+
+
+def get_loop_improvement_handoff_review(conn, review_id):
+    return conn.execute(
+        "SELECT * FROM loop_improvement_handoff_reviews WHERE id=?", (review_id,)
+    ).fetchone()
+
+
+def list_loop_improvement_handoff_reviews(conn, limit=20):
+    return conn.execute(
+        "SELECT * FROM loop_improvement_handoff_reviews ORDER BY id DESC LIMIT ?",
+        (limit,),
+    ).fetchall()
+
+
+def save_loop_improvement_handoff_review_markdown_report(
+        conn, handoff_review_id, report_path, report_format, content_hash,
+        bytes_written) -> int:
+    cur = conn.execute(
+        "INSERT INTO loop_improvement_handoff_review_markdown_reports "
+        "(handoff_review_id, report_path, report_format, content_hash, bytes_written) "
+        "VALUES (?,?,?,?,?)",
+        (handoff_review_id, report_path, report_format, content_hash, bytes_written),
+    )
+    conn.commit()
+    return cur.lastrowid
+
+
+def get_loop_improvement_handoff_review_markdown_report(conn, review_id):
+    return conn.execute(
+        "SELECT * FROM loop_improvement_handoff_review_markdown_reports "
+        "WHERE handoff_review_id=? ORDER BY id DESC LIMIT 1",
+        (review_id,),
+    ).fetchone()
+
+
+def list_loop_improvement_handoff_review_markdown_reports(conn, limit=20):
+    return conn.execute(
+        "SELECT * FROM loop_improvement_handoff_review_markdown_reports "
+        "ORDER BY id DESC LIMIT ?",
         (limit,),
     ).fetchall()
 

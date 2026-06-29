@@ -33,6 +33,7 @@ import observatory_drilldown
 import loop_improvement
 import loop_improvement_actions
 import loop_improvement_handoff
+import loop_improvement_handoff_review
 import loop_improvement_review
 import observatory_reports
 import observatory_remediation
@@ -115,6 +116,8 @@ COMMANDS:
   --loop-improvement-action-batches / --loop-improvement-action-batch ID
   --handoff-loop-improvement-action ACTION_ID [--type dry_run_plan|loop_task|external_agent_job|implementation_packet]
   --loop-improvement-handoffs / --loop-improvement-handoff ID
+  --loop-improvement-handoff-review [--status S | --type T | --group-by G]
+  --loop-improvement-handoff-reviews / --loop-improvement-handoff-review-show ID
   --replay LOOP_ID            replay a prior loop
   --paused                    list paused external-agent loops
   --resume LOOP_ID [--external-completion-file PATH | --external-completion-text 'JSON'] [--commit]
@@ -4475,6 +4478,176 @@ def _cmd_loop_improvement_handoff(args) -> int:
     return 0
 
 
+def _loop_improvement_handoff_review_filters(args):
+    limit = 25
+    if "--limit" in args:
+        val = _flag_val(args, "--limit")
+        if not val:
+            raise ValueError("--limit needs an integer")
+        limit = int(val)
+    return {
+        "status": _flag_val(args, "--status"),
+        "handoff_type": _flag_val(args, "--type"),
+        "implementation_scope": _flag_val(args, "--implementation-scope"),
+        "target_type": _flag_val(args, "--target-type"),
+        "workspace": _flag_val(args, "--workspace"),
+        "external_coder": _flag_val(args, "--external-coder"),
+        "group_by": _flag_val(args, "--group-by") or "status",
+        "limit": limit,
+    }
+
+
+def _print_loop_improvement_handoff_review(report, review_id=None,
+                                           markdown_path=None):
+    filters = json.loads(report.filters_json or "{}")
+    _rule("LOOP IMPROVEMENT HANDOFF REVIEW")
+    if review_id is not None:
+        print(f"Review ID          : {review_id}")
+    if markdown_path:
+        print(f"Markdown report    : {markdown_path}")
+    _rule("SUMMARY")
+    print(f"Generated at       : {report.generated_at}")
+    print(f"Handoffs reviewed  : {report.total_handoffs_reviewed}")
+    print(f"Filters            : {report.filters_json}")
+    print(f"Group by           : {filters.get('group_by', 'status')}")
+    _rule("GROUPS")
+    if not report.groups:
+        print("(none)")
+    for group in report.groups:
+        print(f"- type={group.group_type} key={group.group_key} count={group.count}")
+        print(f"  handoffs : {group.handoff_ids}")
+        print(f"  risk     : {group.highest_risk}")
+        print(f"  summary  : {group.summary}")
+        print(f"  next     : {group.recommended_next_step}")
+    _rule("HANDOFFS")
+    if not report.items:
+        print("(none)")
+    for item in report.items:
+        print(f"- handoff #{item.handoff_id} action=#{item.action_id} "
+              f"proposal={item.source_proposal_id} type={item.handoff_type}")
+        print(f"  status/review : {item.status} / {item.review_status}")
+        print(f"  score/risk    : {item.review_score} / {item.risk_level}")
+        print(f"  scope         : {item.implementation_scope}")
+        print(f"  target        : {item.target_type}/{item.target_name}")
+        print(f"  workspace     : {item.target_workspace}")
+        print(f"  external      : {item.external_coder or '(none)'}")
+        print(f"  created loop  : {item.created_loop_id or '(none)'}")
+        print(f"  created job   : {item.created_external_job_id or '(none)'}")
+        print(f"  packet        : {item.packet_path or '(none)'}")
+        print(f"  task preview  : {item.generated_task_preview}")
+        print(f"  rationale     : {item.rationale}")
+        print(f"  decision      : {item.recommended_decision}")
+        print(f"  command       : {item.recommended_next_command}")
+    _rule("NEXT STEPS")
+    if not report.next_steps:
+        print("(none)")
+    for step in report.next_steps:
+        print(f"- {step}")
+
+
+def _loop_improvement_handoff_review_markdown_path_display(path):
+    if not path:
+        return "(none)"
+    if not loop_improvement_handoff_review.is_markdown_report_path(path):
+        return f"invalid handoff review report path metadata: {path}"
+    if not os.path.exists(path):
+        return f"missing handoff review report path: {path}"
+    return path
+
+
+def _cmd_loop_improvement_handoff_review(args) -> int:
+    try:
+        filters = _loop_improvement_handoff_review_filters(args)
+    except (ValueError, TypeError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    save_report = "--save-report" in args
+    conn = database.init_db()
+    engine = loop_improvement_handoff_review.LoopImprovementHandoffReviewEngine(conn)
+    try:
+        report = engine.build_report(**filters)
+    except ValueError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    review_id = engine.save_review(report, group_by=filters["group_by"])
+    markdown_path = None
+    if save_report:
+        try:
+            md = engine.save_markdown_report(review_id, report)
+            markdown_path = md.report_path
+        except Exception as exc:
+            print(f"ERROR: loop improvement handoff review markdown failed: {exc}",
+                  file=sys.stderr)
+            return 1
+    _print_loop_improvement_handoff_review(
+        report, review_id=review_id, markdown_path=markdown_path)
+    return 0
+
+
+def _latest_loop_improvement_handoff_review_id(conn):
+    rows = database.list_loop_improvement_handoff_reviews(conn, 1)
+    return rows[0]["id"] if rows else None
+
+
+def _cmd_loop_improvement_handoff_reviews(args) -> int:
+    limit = 20
+    if "--limit" in args:
+        try:
+            limit = int(_flag_val(args, "--limit"))
+        except (TypeError, ValueError):
+            print("ERROR: --limit needs an integer", file=sys.stderr)
+            return 1
+    conn = database.init_db()
+    rows = database.list_loop_improvement_handoff_reviews(conn, limit)
+    _rule(f"LOOP IMPROVEMENT HANDOFF REVIEWS ({len(rows)})")
+    if not rows:
+        print("(none)")
+        return 0
+    for row in rows:
+        md = database.get_loop_improvement_handoff_review_markdown_report(
+            conn, row["id"])
+        print(f"#{row['id']} {row['generated_at']} "
+              f"handoffs={row['total_handoffs_reviewed']} group_by={row['group_by']}")
+        print(f"    filters: {row['filters_json']}")
+        if md is not None:
+            print(
+                "    markdown: "
+                f"{_loop_improvement_handoff_review_markdown_path_display(md['report_path'])}"
+            )
+    return 0
+
+
+def _cmd_loop_improvement_handoff_review_show(args) -> int:
+    if not args:
+        print("ERROR: --loop-improvement-handoff-review-show needs a REVIEW_ID",
+              file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    try:
+        review_id = _parse_id_or_latest(
+            conn, args[0], _latest_loop_improvement_handoff_review_id,
+            "loop improvement handoff review")
+    except (ValueError, TypeError):
+        print("ERROR: REVIEW_ID must be an integer or 'latest'", file=sys.stderr)
+        return 1
+    row = database.get_loop_improvement_handoff_review(conn, review_id)
+    if row is None:
+        print(f"ERROR: no loop improvement handoff review {args[0]}",
+              file=sys.stderr)
+        return 1
+    report = loop_improvement_handoff_review.report_from_row(row)
+    md = database.get_loop_improvement_handoff_review_markdown_report(conn, row["id"])
+    _print_loop_improvement_handoff_review(
+        report,
+        review_id=row["id"],
+        markdown_path=(
+            _loop_improvement_handoff_review_markdown_path_display(md["report_path"])
+            if md else None
+        ),
+    )
+    return 0
+
+
 def _cmd_archive_external_job(args, unarchive=False) -> int:
     import external_agent_jobs as eaj
     if not args:
@@ -6246,6 +6419,12 @@ def main() -> int:
         return _cmd_loop_improvement_handoffs(args[1:])
     if args and args[0] == "--loop-improvement-handoff":
         return _cmd_loop_improvement_handoff(args[1:])
+    if args and args[0] == "--loop-improvement-handoff-review":
+        return _cmd_loop_improvement_handoff_review(args[1:])
+    if args and args[0] == "--loop-improvement-handoff-reviews":
+        return _cmd_loop_improvement_handoff_reviews(args[1:])
+    if args and args[0] == "--loop-improvement-handoff-review-show":
+        return _cmd_loop_improvement_handoff_review_show(args[1:])
     if args and args[0] == "--replay":
         return _cmd_replay(args[1:])
     if args and args[0] == "--templates":

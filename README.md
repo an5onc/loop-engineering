@@ -335,6 +335,47 @@ never run Claude/Codex automatically, never bypass approvals/workspace profiles,
 and never mutate loop definitions, agent definitions, prompts, quality gates,
 stop conditions, jobs, or workspace files from dry-run or packet generation.
 
+# Loop Engineering — Stage 5.4
+
+## What's new in 5.4 — Loop Improvement Handoff Review
+
+Stage 5.4 adds a deterministic review layer for saved loop-improvement
+handoffs. It classifies handoffs before manual execution, groups them for
+inspection, persists review metadata, and can write optional Markdown reports
+without executing suggested commands or creating loops/jobs.
+
+```bash
+python3 main.py --loop-improvement-handoff-review
+python3 main.py --loop-improvement-handoff-review --status suspicious
+python3 main.py --loop-improvement-handoff-review --type implementation_packet
+python3 main.py --loop-improvement-handoff-review --implementation-scope quality_gate_update
+python3 main.py --loop-improvement-handoff-review --target-type quality_gate
+python3 main.py --loop-improvement-handoff-review --workspace default
+python3 main.py --loop-improvement-handoff-review --external-coder codex
+python3 main.py --loop-improvement-handoff-review --group-by type --limit 10
+python3 main.py --loop-improvement-handoff-review --save-report
+python3 main.py --loop-improvement-handoff-reviews
+python3 main.py --loop-improvement-handoff-review-show latest
+```
+
+Review statuses include `safe_dry_run`, `safe_packet`, `needs_review`,
+`ready_for_manual_execution`, `confirmed_loop_created`,
+`confirmed_external_job_created`, `blocked`, `suspicious`, and `unknown`.
+Recommended decisions include `inspect`, `approve_for_manual_execution`,
+`defer`, `block`, `archive`, and `needs_more_evidence`.
+
+Saved review rows live in `loop_improvement_handoff_reviews`. Optional Markdown
+reports are written under:
+
+```
+loop_improvement_handoff_review_reports/loop_improvement_handoff_review_REVIEWID_YYYYMMDD_HHMMSS.md
+```
+
+Safety: handoff review reads saved handoff/action/proposal metadata only. It
+does not execute suggested commands, call Ollama, create loops, create external
+jobs, mutate handoffs, mutate improvement definitions, edit workspace files, or
+read protected file contents.
+
 # Loop Engineering — Stage 4.9
 
 ## What's new in 4.9 — Stage 4 Final Audit and Readiness
