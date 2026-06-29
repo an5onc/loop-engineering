@@ -43,6 +43,7 @@ import loop_improvement_post_apply_verification
 import loop_improvement_outcomes
 import loop_improvement_review
 import loop_improvement_self_audit
+import loop_improvement_stage6_audit
 import loop_improvement_stage5_audit
 import loop_improvement_rollback_snapshot
 import observatory_reports
@@ -154,6 +155,8 @@ COMMANDS:
   --set-improvement-outcome-status ID successful|successful_with_warnings|failed_verification|rollback_recommended|rolled_back|inconclusive|blocked|deferred
   --self-improvement-audit [--save-report]
   --self-improvement-audits / --self-improvement-audit-show ID
+  --loop-improvement-stage6-audit [--save-report]
+  --loop-improvement-stage6-audits / --loop-improvement-stage6-audit-show ID
   --replay LOOP_ID            replay a prior loop
   --paused                    list paused external-agent loops
   --resume LOOP_ID [--external-completion-file PATH | --external-completion-text 'JSON'] [--commit]
@@ -6546,6 +6549,144 @@ def _cmd_self_improvement_audit_show(args) -> int:
     return 0
 
 
+def _latest_loop_improvement_stage6_audit_id(conn):
+    rows = database.list_loop_improvement_stage6_audits(conn, limit=1)
+    return rows[0]["id"] if rows else None
+
+
+def _loop_improvement_stage6_audit_markdown_path_display(path):
+    if not path:
+        return "(none)"
+    if not loop_improvement_stage6_audit.is_markdown_report_path(path):
+        return f"invalid Stage 6 audit report path metadata: {path}"
+    if not os.path.exists(path):
+        return f"missing Stage 6 audit report path: {path}"
+    return path
+
+
+def _print_loop_improvement_stage6_audit(report, audit_id=None, markdown_path=None):
+    _rule("STAGE 6 CONTROLLED SELF-IMPROVEMENT AUDIT")
+    _rule("SUMMARY")
+    if audit_id is not None:
+        print(f"Audit ID            : {audit_id}")
+    if markdown_path:
+        print(f"Markdown report     : {markdown_path}")
+    print(f"Generated at        : {report.generated_at}")
+    print(f"Overall status      : {report.overall_status}")
+    print(f"Total checks        : {report.total_checks}")
+    print(f"Passed              : {report.passed_checks}")
+    print(f"Warnings            : {report.warning_checks}")
+    print(f"Failed              : {report.failed_checks}")
+    print(f"Blocked             : {report.blocked_checks}")
+    print(f"Stage 7 ready       : {report.stage7_readiness.get('ready')}")
+
+    _rule("SECTIONS")
+    for section in report.sections:
+        print(f"- {section.name}: {section.status}")
+        print(f"  summary: {section.summary}")
+        for check in section.checks:
+            print(f"  - {check.status}: {check.name}")
+            print(f"    message : {check.message}")
+            print(f"    evidence: {check.evidence}")
+            print(f"    action  : {check.recommended_action}")
+
+    _rule("RECOMMENDATIONS")
+    _print_lines(report.recommendations)
+
+    _rule("STAGE 7 READINESS")
+    readiness = report.stage7_readiness
+    print(f"ready                 : {readiness.get('ready')}")
+    print(f"recommended theme     : {readiness.get('recommended_stage_7_theme')}")
+    print("blockers:")
+    _print_lines(readiness.get("blockers", []))
+    print("warnings:")
+    _print_lines(readiness.get("warnings", []))
+    print("required Stage 7 safety controls:")
+    _print_lines(readiness.get("required_stage_7_safety_controls", []))
+
+    _rule("SAFETY NOTES")
+    _print_lines(report.safety_notes)
+    _rule("NEXT STEPS")
+    _print_lines(report.next_steps)
+
+
+def _cmd_loop_improvement_stage6_audit(args) -> int:
+    conn = database.init_db()
+    engine = loop_improvement_stage6_audit.LoopImprovementStage6AuditEngine(conn)
+    try:
+        report = engine.build_report()
+        audit_id = engine.save_audit(report)
+        markdown_path = None
+        if "--save-report" in args:
+            md = engine.save_markdown_report(audit_id, report)
+            markdown_path = md.report_path
+    except Exception as exc:
+        print(f"ERROR: Stage 6 final audit failed: {exc}", file=sys.stderr)
+        return 1
+    _print_loop_improvement_stage6_audit(
+        report, audit_id=audit_id, markdown_path=markdown_path)
+    return 0
+
+
+def _cmd_loop_improvement_stage6_audits(args) -> int:
+    limit = 20
+    if "--limit" in args:
+        try:
+            limit = int(_flag_val(args, "--limit"))
+        except (TypeError, ValueError):
+            print("ERROR: --limit needs an integer", file=sys.stderr)
+            return 1
+    conn = database.init_db()
+    rows = database.list_loop_improvement_stage6_audits(conn, limit=limit)
+    _rule(f"STAGE 6 CONTROLLED SELF-IMPROVEMENT AUDITS ({len(rows)})")
+    if not rows:
+        print("(none)")
+        return 0
+    for row in rows:
+        md = database.get_loop_improvement_stage6_audit_markdown_report(
+            conn, row["id"])
+        print(f"#{row['id']}  {row['generated_at']}  "
+              f"status={row['overall_status']} checks={row['total_checks']} "
+              f"warnings={row['warning_checks']} failed={row['failed_checks']} "
+              f"blocked={row['blocked_checks']}")
+        if md is not None:
+            print(
+                "    markdown: "
+                f"{_loop_improvement_stage6_audit_markdown_path_display(md['report_path'])}"
+            )
+    return 0
+
+
+def _cmd_loop_improvement_stage6_audit_show(args) -> int:
+    if not args:
+        print("ERROR: --loop-improvement-stage6-audit-show needs an AUDIT_ID",
+              file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    try:
+        audit_id = _parse_id_or_latest(
+            conn, args[0], _latest_loop_improvement_stage6_audit_id,
+            "Stage 6 final audit")
+    except (ValueError, TypeError):
+        print("ERROR: AUDIT_ID must be an integer or 'latest'", file=sys.stderr)
+        return 1
+    row = database.get_loop_improvement_stage6_audit(conn, audit_id)
+    if row is None:
+        print(f"ERROR: no Stage 6 final audit {args[0]}", file=sys.stderr)
+        return 1
+    report = loop_improvement_stage6_audit.report_from_row(row)
+    md = database.get_loop_improvement_stage6_audit_markdown_report(conn, audit_id)
+    _print_loop_improvement_stage6_audit(
+        report,
+        audit_id=audit_id,
+        markdown_path=(
+            _loop_improvement_stage6_audit_markdown_path_display(md["report_path"])
+            if md else None
+        ),
+    )
+    return 0
+
+
 def _cmd_archive_external_job(args, unarchive=False) -> int:
     import external_agent_jobs as eaj
     if not args:
@@ -8395,6 +8536,12 @@ def main() -> int:
         return _cmd_self_improvement_audits(args[1:])
     if args and args[0] == "--self-improvement-audit-show":
         return _cmd_self_improvement_audit_show(args[1:])
+    if args and args[0] == "--loop-improvement-stage6-audit":
+        return _cmd_loop_improvement_stage6_audit(args[1:])
+    if args and args[0] == "--loop-improvement-stage6-audits":
+        return _cmd_loop_improvement_stage6_audits(args[1:])
+    if args and args[0] == "--loop-improvement-stage6-audit-show":
+        return _cmd_loop_improvement_stage6_audit_show(args[1:])
     if args and args[0] == "--replay":
         return _cmd_replay(args[1:])
     if args and args[0] == "--templates":

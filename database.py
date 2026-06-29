@@ -1269,6 +1269,34 @@ CREATE TABLE IF NOT EXISTS self_improvement_audit_markdown_reports (
     FOREIGN KEY (self_audit_id) REFERENCES self_improvement_audits(id)
 );
 
+CREATE TABLE IF NOT EXISTS loop_improvement_stage6_audits (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    generated_at TEXT,
+    overall_status TEXT,
+    total_checks INTEGER,
+    passed_checks INTEGER,
+    warning_checks INTEGER,
+    failed_checks INTEGER,
+    blocked_checks INTEGER,
+    sections_json TEXT,
+    recommendations_json TEXT,
+    stage7_readiness_json TEXT,
+    safety_notes_json TEXT,
+    next_steps_json TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS loop_improvement_stage6_audit_markdown_reports (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    stage6_audit_id INTEGER NOT NULL,
+    report_path TEXT,
+    report_format TEXT,
+    content_hash TEXT,
+    bytes_written INTEGER,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (stage6_audit_id) REFERENCES loop_improvement_stage6_audits(id)
+);
+
 CREATE TABLE IF NOT EXISTS project_workspaces (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT UNIQUE,
@@ -4077,6 +4105,69 @@ def get_self_improvement_audit_markdown_report(conn, audit_id):
 def list_self_improvement_audit_markdown_reports(conn, limit=20):
     return conn.execute(
         "SELECT * FROM self_improvement_audit_markdown_reports "
+        "ORDER BY id DESC LIMIT ?",
+        (limit,),
+    ).fetchall()
+
+
+def save_loop_improvement_stage6_audit(
+        conn, generated_at, overall_status, total_checks, passed_checks,
+        warning_checks, failed_checks, blocked_checks, sections_json,
+        recommendations_json, stage7_readiness_json, safety_notes_json,
+        next_steps_json) -> int:
+    cur = conn.execute(
+        "INSERT INTO loop_improvement_stage6_audits "
+        "(generated_at, overall_status, total_checks, passed_checks, "
+        "warning_checks, failed_checks, blocked_checks, sections_json, "
+        "recommendations_json, stage7_readiness_json, safety_notes_json, "
+        "next_steps_json) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+        (generated_at, overall_status, total_checks, passed_checks,
+         warning_checks, failed_checks, blocked_checks, sections_json,
+         recommendations_json, stage7_readiness_json, safety_notes_json,
+         next_steps_json),
+    )
+    conn.commit()
+    return cur.lastrowid
+
+
+def get_loop_improvement_stage6_audit(conn, audit_id):
+    return conn.execute(
+        "SELECT * FROM loop_improvement_stage6_audits WHERE id=?",
+        (audit_id,),
+    ).fetchone()
+
+
+def list_loop_improvement_stage6_audits(conn, limit=20):
+    return conn.execute(
+        "SELECT * FROM loop_improvement_stage6_audits ORDER BY id DESC LIMIT ?",
+        (limit,),
+    ).fetchall()
+
+
+def save_loop_improvement_stage6_audit_markdown_report(
+        conn, stage6_audit_id, report_path, report_format, content_hash,
+        bytes_written) -> int:
+    cur = conn.execute(
+        "INSERT INTO loop_improvement_stage6_audit_markdown_reports "
+        "(stage6_audit_id, report_path, report_format, content_hash, bytes_written) "
+        "VALUES (?,?,?,?,?)",
+        (stage6_audit_id, report_path, report_format, content_hash, bytes_written),
+    )
+    conn.commit()
+    return cur.lastrowid
+
+
+def get_loop_improvement_stage6_audit_markdown_report(conn, audit_id):
+    return conn.execute(
+        "SELECT * FROM loop_improvement_stage6_audit_markdown_reports "
+        "WHERE stage6_audit_id=? ORDER BY id DESC LIMIT 1",
+        (audit_id,),
+    ).fetchone()
+
+
+def list_loop_improvement_stage6_audit_markdown_reports(conn, limit=20):
+    return conn.execute(
+        "SELECT * FROM loop_improvement_stage6_audit_markdown_reports "
         "ORDER BY id DESC LIMIT ?",
         (limit,),
     ).fetchall()

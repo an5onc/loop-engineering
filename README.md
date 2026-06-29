@@ -378,6 +378,56 @@ read protected file contents.
 
 # Loop Engineering - Stage 6.5
 
+## What's new in 6.9 - Stage 6 Final Audit and Stage 7 Readiness
+
+Stage 6.9 adds the final Controlled Self-Improvement audit. It verifies that
+the Stage 6 subsystem is safe, complete, deterministic, auditable, and ready for
+Stage 7 planning. The final chain is:
+
+```
+application plan -> patch proposal -> dry-run validation -> human approval
+-> safe application attempt -> rollback snapshot / restore preview
+-> post-apply verification -> outcome tracking -> self-improvement audit
+-> final Stage 6 audit
+```
+
+```bash
+python3 main.py --loop-improvement-stage6-audit
+python3 main.py --loop-improvement-stage6-audit --save-report
+python3 main.py --loop-improvement-stage6-audits
+python3 main.py --loop-improvement-stage6-audit-show latest
+```
+
+Audit sections cover application planning, patch proposal generation, dry-run
+validation, human approval, safe application, rollback snapshots, post-apply
+verification, outcome tracking, self-improvement audit, safety baseline, and
+Stage 7 readiness. Overall statuses are `PASS`, `PASS_WITH_WARNINGS`, `FAIL`,
+and `BLOCKED`; check and section statuses are `PASS`, `WARN`, `FAIL`, and
+`BLOCKED`.
+
+Each final audit is saved in `loop_improvement_stage6_audits`. Optional
+Markdown reports are written under:
+
+```
+loop_improvement_stage6_audit_reports/loop_improvement_stage6_audit_AUDITID_YYYYMMDD_HHMMSS.md
+```
+
+The Stage 7 readiness block reports readiness, blockers, warnings, recommended
+Stage 7 theme, and required safety controls. The recommended Stage 7 theme is
+`Multi-Project Operations`. Required Stage 7 controls include project registry,
+workspace isolation, per-project safety profiles, no cross-project writes
+without approval, project-specific audit trails, controlled scheduling, no
+hidden model or command execution, and explicit user approval before cross-repo
+changes.
+
+Safety: Stage 6.9 never executes commands, runs tests automatically, writes
+`command_results`, calls Ollama, applies patches, restores files, edits source
+files, creates loops, creates external jobs, imports completions, resumes jobs,
+commits, or mutates loop definitions, agent definitions, prompts, quality gates,
+stop conditions, workspace profiles, jobs, or workspace files. It reads only
+Stage 6 metadata plus safe SQLite schema metadata and writes only Stage 6 final
+audit metadata plus optional Markdown reports.
+
 ## What's new in 6.8 - Self-Improvement Audit
 
 Stage 6.8 audits the controlled self-improvement chain for safety,
