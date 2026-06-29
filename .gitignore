@@ -1,0 +1,15 @@
+__pycache__/
+*.pyc
+loop_engineering.db
+reports/
+observatory_reports/
+observatory_trend_reports/
+observatory_failure_reports/
+observatory_remediation_reports/
+observatory_action_reports/
+observatory_action_review_reports/
+observatory_action_handoff_review_reports/
+observatory_stage4_audit_reports/
+external_agent_handoffs/
+external_agent_jobs/
+external_batch_reports/
