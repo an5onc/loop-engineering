@@ -1137,6 +1137,58 @@ CREATE TABLE IF NOT EXISTS loop_improvement_rollback_snapshot_markdown_reports (
     FOREIGN KEY (snapshot_id) REFERENCES loop_improvement_rollback_snapshots(id)
 );
 
+CREATE TABLE IF NOT EXISTS post_apply_verification_plans (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    application_attempt_id INTEGER NOT NULL,
+    patch_proposal_id INTEGER,
+    approval_id INTEGER,
+    generated_at TEXT,
+    status TEXT,
+    summary TEXT,
+    verification_commands_json TEXT,
+    checks_json TEXT,
+    required_checks INTEGER,
+    optional_checks INTEGER,
+    risk_level TEXT,
+    blockers_json TEXT,
+    warnings_json TEXT,
+    next_steps_json TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT,
+    FOREIGN KEY (application_attempt_id) REFERENCES loop_improvement_patch_application_attempts(id)
+);
+
+CREATE TABLE IF NOT EXISTS post_apply_verification_reports (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    verification_plan_id INTEGER NOT NULL,
+    generated_at TEXT,
+    overall_status TEXT,
+    total_checks INTEGER,
+    required_checks INTEGER,
+    optional_checks INTEGER,
+    passed_checks INTEGER,
+    failed_checks INTEGER,
+    blocked_checks INTEGER,
+    pending_checks INTEGER,
+    checks_json TEXT,
+    blockers_json TEXT,
+    warnings_json TEXT,
+    next_steps_json TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (verification_plan_id) REFERENCES post_apply_verification_plans(id)
+);
+
+CREATE TABLE IF NOT EXISTS post_apply_verification_markdown_reports (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    verification_report_id INTEGER NOT NULL,
+    report_path TEXT,
+    report_format TEXT,
+    content_hash TEXT,
+    bytes_written INTEGER,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (verification_report_id) REFERENCES post_apply_verification_reports(id)
+);
+
 CREATE TABLE IF NOT EXISTS project_workspaces (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT UNIQUE,
@@ -3619,6 +3671,130 @@ def get_loop_improvement_rollback_snapshot_markdown_report(conn, snapshot_id):
 def list_loop_improvement_rollback_snapshot_markdown_reports(conn, limit=20):
     return conn.execute(
         "SELECT * FROM loop_improvement_rollback_snapshot_markdown_reports "
+        "ORDER BY id DESC LIMIT ?",
+        (limit,),
+    ).fetchall()
+
+
+def save_post_apply_verification_plan(
+        conn, application_attempt_id, patch_proposal_id, approval_id,
+        generated_at, status, summary, verification_commands_json,
+        checks_json, required_checks, optional_checks, risk_level,
+        blockers_json, warnings_json, next_steps_json) -> int:
+    cur = conn.execute(
+        "INSERT INTO post_apply_verification_plans "
+        "(application_attempt_id, patch_proposal_id, approval_id, generated_at, "
+        "status, summary, verification_commands_json, checks_json, "
+        "required_checks, optional_checks, risk_level, blockers_json, "
+        "warnings_json, next_steps_json, updated_at) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)",
+        (application_attempt_id, patch_proposal_id, approval_id, generated_at,
+         status, summary, verification_commands_json, checks_json,
+         required_checks, optional_checks, risk_level, blockers_json,
+         warnings_json, next_steps_json),
+    )
+    conn.commit()
+    return cur.lastrowid
+
+
+def get_post_apply_verification_plan(conn, plan_id):
+    return conn.execute(
+        "SELECT * FROM post_apply_verification_plans WHERE id=?",
+        (plan_id,),
+    ).fetchone()
+
+
+def list_post_apply_verification_plans(conn, status=None, limit=25):
+    if status:
+        return conn.execute(
+            "SELECT * FROM post_apply_verification_plans "
+            "WHERE status=? ORDER BY id DESC LIMIT ?",
+            (status, limit),
+        ).fetchall()
+    return conn.execute(
+        "SELECT * FROM post_apply_verification_plans ORDER BY id DESC LIMIT ?",
+        (limit,),
+    ).fetchall()
+
+
+def update_post_apply_verification_status(conn, plan_id, status):
+    conn.execute(
+        "UPDATE post_apply_verification_plans "
+        "SET status=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
+        (status, plan_id),
+    )
+    conn.commit()
+    return get_post_apply_verification_plan(conn, plan_id)
+
+
+def save_post_apply_verification_report(
+        conn, verification_plan_id, generated_at, overall_status,
+        total_checks, required_checks, optional_checks, passed_checks,
+        failed_checks, blocked_checks, pending_checks, checks_json,
+        blockers_json, warnings_json, next_steps_json) -> int:
+    cur = conn.execute(
+        "INSERT INTO post_apply_verification_reports "
+        "(verification_plan_id, generated_at, overall_status, total_checks, "
+        "required_checks, optional_checks, passed_checks, failed_checks, "
+        "blocked_checks, pending_checks, checks_json, blockers_json, "
+        "warnings_json, next_steps_json) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        (verification_plan_id, generated_at, overall_status, total_checks,
+         required_checks, optional_checks, passed_checks, failed_checks,
+         blocked_checks, pending_checks, checks_json, blockers_json,
+         warnings_json, next_steps_json),
+    )
+    conn.commit()
+    return cur.lastrowid
+
+
+def get_post_apply_verification_report(conn, report_id):
+    return conn.execute(
+        "SELECT * FROM post_apply_verification_reports WHERE id=?",
+        (report_id,),
+    ).fetchone()
+
+
+def get_latest_post_apply_verification_report_for_plan(conn, plan_id):
+    return conn.execute(
+        "SELECT * FROM post_apply_verification_reports "
+        "WHERE verification_plan_id=? ORDER BY id DESC LIMIT 1",
+        (plan_id,),
+    ).fetchone()
+
+
+def list_post_apply_verification_reports(conn, limit=20):
+    return conn.execute(
+        "SELECT * FROM post_apply_verification_reports ORDER BY id DESC LIMIT ?",
+        (limit,),
+    ).fetchall()
+
+
+def save_post_apply_verification_markdown_report(
+        conn, verification_report_id, report_path, report_format,
+        content_hash, bytes_written) -> int:
+    cur = conn.execute(
+        "INSERT INTO post_apply_verification_markdown_reports "
+        "(verification_report_id, report_path, report_format, content_hash, "
+        "bytes_written) VALUES (?,?,?,?,?)",
+        (verification_report_id, report_path, report_format, content_hash,
+         bytes_written),
+    )
+    conn.commit()
+    return cur.lastrowid
+
+
+def get_post_apply_verification_markdown_report(conn, report_id):
+    return conn.execute(
+        "SELECT * FROM post_apply_verification_markdown_reports "
+        "WHERE verification_report_id=? ORDER BY id DESC LIMIT 1",
+        (report_id,),
+    ).fetchone()
+
+
+def list_post_apply_verification_markdown_reports(conn, limit=20):
+    return conn.execute(
+        "SELECT * FROM post_apply_verification_markdown_reports "
         "ORDER BY id DESC LIMIT ?",
         (limit,),
     ).fetchall()

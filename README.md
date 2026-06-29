@@ -378,6 +378,43 @@ read protected file contents.
 
 # Loop Engineering - Stage 6.5
 
+## What's new in 6.6 - Post-Apply Verification Runner
+
+Stage 6.6 creates metadata-only post-apply verification plans and reports for
+existing Stage 6.4 application attempts. It infers manual verification commands,
+focused tests, documentation checks, risk level, blockers, warnings, and next
+steps. It never executes commands, writes source files, applies patches, restores
+files, calls Ollama, creates loops, creates external jobs, commits, or mutates
+framework definitions.
+
+```bash
+python3 main.py --create-post-apply-verification-plan latest
+python3 main.py --post-apply-verification-plans
+python3 main.py --post-apply-verification-plan latest
+python3 main.py --post-apply-verification-report latest
+python3 main.py --post-apply-verification-report latest --save-report
+python3 main.py --set-post-apply-verification-status latest manually_verified
+```
+
+Each plan is saved in `post_apply_verification_plans`; each generated report is
+saved in `post_apply_verification_reports`. Optional Markdown reports are
+written under:
+
+```
+post_apply_verification_reports/post_apply_verification_REPORTID_YYYYMMDD_HHMMSS.md
+```
+
+Recommended verification commands are stored as text only. Stage 6.6 does not
+create `command_results`; operators must run commands manually in an approved
+environment and then set the plan status to `manually_verified`, `failed`,
+`blocked`, or `deferred`.
+
+Safety: Stage 6.6 preserves dry-run, human approval, patch preview, rollback,
+file allowlist, workspace profile, command allowlist, no-auto-commit, and audit
+requirements from earlier Stage 6 gates. Failure must stop and preserve rollback
+path. There is no autonomous recursive self-modification, hidden model call, or
+hidden external-agent execution.
+
 ## What's new in 6.5 - Rollback Snapshot and Restore Preview
 
 Stage 6.5 creates rollback snapshots for guarded Stage 6.4 application

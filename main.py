@@ -39,6 +39,7 @@ import loop_improvement_patch_approval
 import loop_improvement_patch_application
 import loop_improvement_patch_dry_run
 import loop_improvement_patch_proposals
+import loop_improvement_post_apply_verification
 import loop_improvement_review
 import loop_improvement_stage5_audit
 import loop_improvement_rollback_snapshot
@@ -141,6 +142,10 @@ COMMANDS:
   --create-loop-improvement-rollback-snapshot ATTEMPT_ID [--save-report]
   --loop-improvement-rollback-snapshots / --loop-improvement-rollback-snapshot ID
   --preview-loop-improvement-rollback-restore SNAPSHOT_ID
+  --create-post-apply-verification-plan ATTEMPT_ID
+  --post-apply-verification-plans / --post-apply-verification-plan ID
+  --post-apply-verification-report PLAN_ID [--save-report]
+  --set-post-apply-verification-status ID manually_verified|failed|blocked|deferred
   --replay LOOP_ID            replay a prior loop
   --paused                    list paused external-agent loops
   --resume LOOP_ID [--external-completion-file PATH | --external-completion-text 'JSON'] [--commit]
@@ -5909,6 +5914,258 @@ def _cmd_preview_loop_improvement_rollback_restore(args) -> int:
     return 0
 
 
+def _latest_post_apply_verification_plan_id(conn):
+    rows = database.list_post_apply_verification_plans(conn, limit=1)
+    return rows[0]["id"] if rows else None
+
+
+def _post_apply_verification_markdown_path_display(path):
+    if not path:
+        return "(none)"
+    if not loop_improvement_post_apply_verification.is_markdown_report_path(path):
+        return f"invalid post-apply verification report path metadata: {path}"
+    if not os.path.exists(path):
+        return f"missing post-apply verification report path: {path}"
+    return path
+
+
+def _print_post_apply_verification_plan(plan, plan_id=None):
+    _rule("POST-APPLY VERIFICATION PLAN")
+    if plan_id is not None:
+        print(f"Plan ID             : {plan_id}")
+    print(f"Generated at        : {plan.generated_at}")
+    print(f"Application attempt : {plan.application_attempt_id}")
+    print(f"Patch Proposal ID   : {plan.patch_proposal_id}")
+    print(f"Approval ID         : {plan.approval_id}")
+    print(f"Status              : {plan.status}")
+    print(f"Risk level          : {plan.risk_level}")
+    print(f"Required checks     : {plan.required_checks}")
+    print(f"Optional checks     : {plan.optional_checks}")
+    print("Executes commands   : False")
+    print(f"Summary             : {plan.summary}")
+
+    _rule("VERIFICATION COMMANDS (MANUAL ONLY)")
+    if not plan.verification_commands:
+        print("(none)")
+    for item in plan.verification_commands:
+        print(f"- {item.get('command')}")
+        print(f"  required : {bool(item.get('required'))}")
+        print(f"  category : {item.get('category')}")
+        print(f"  execution: {item.get('execution')}")
+
+    _rule("CHECKS")
+    if not plan.checks:
+        print("(none)")
+    for check in plan.checks:
+        print(f"- {check.name} [{check.status}]")
+        print(f"  required: {check.required}")
+        if check.command:
+            print(f"  command : {check.command}")
+        if check.notes:
+            print(f"  notes   : {check.notes}")
+
+    _rule("BLOCKERS")
+    if not plan.blockers:
+        print("(none)")
+    for blocker in plan.blockers:
+        print(f"- {blocker}")
+
+    _rule("WARNINGS")
+    for warning in plan.warnings:
+        print(f"- {warning}")
+
+    _rule("NEXT STEPS")
+    for step in plan.next_steps:
+        print(f"- {step}")
+
+
+def _print_post_apply_verification_report(report, report_id=None,
+                                          markdown_path=None):
+    _rule("POST-APPLY VERIFICATION REPORT")
+    if report_id is not None:
+        print(f"Report ID           : {report_id}")
+    if markdown_path:
+        print(f"Markdown report     : {markdown_path}")
+    print(f"Verification plan   : {report.verification_plan_id}")
+    print(f"Generated at        : {report.generated_at}")
+    print(f"Overall status      : {report.overall_status}")
+    print(f"Total checks        : {report.total_checks}")
+    print(f"Required checks     : {report.required_checks}")
+    print(f"Optional checks     : {report.optional_checks}")
+    print(f"Passed checks       : {report.passed_checks}")
+    print(f"Failed checks       : {report.failed_checks}")
+    print(f"Blocked checks      : {report.blocked_checks}")
+    print(f"Pending checks      : {report.pending_checks}")
+    print("Executes commands   : False")
+
+    _rule("CHECKS")
+    if not report.checks:
+        print("(none)")
+    for check in report.checks:
+        print(f"- {check.name} [{check.status}]")
+        print(f"  required: {check.required}")
+        if check.command:
+            print(f"  command : {check.command}")
+        if check.manual_result:
+            print(f"  result  : {check.manual_result}")
+
+    _rule("BLOCKERS")
+    if not report.blockers:
+        print("(none)")
+    for blocker in report.blockers:
+        print(f"- {blocker}")
+
+    _rule("WARNINGS")
+    for warning in report.warnings:
+        print(f"- {warning}")
+
+    _rule("NEXT STEPS")
+    for step in report.next_steps:
+        print(f"- {step}")
+
+
+def _cmd_create_post_apply_verification_plan(args) -> int:
+    if not args:
+        print("ERROR: --create-post-apply-verification-plan needs an ATTEMPT_ID",
+              file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    try:
+        attempt_id = _parse_id_or_latest(
+            conn,
+            args[0],
+            _latest_loop_improvement_patch_application_attempt_id,
+            "loop improvement patch application attempt",
+        )
+    except (ValueError, TypeError):
+        print("ERROR: ATTEMPT_ID must be an integer or 'latest'", file=sys.stderr)
+        return 1
+    engine = loop_improvement_post_apply_verification.PostApplyVerificationEngine(
+        conn)
+    try:
+        plan = engine.create_plan(attempt_id)
+        plan_id = engine.save_plan(plan)
+    except ValueError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    except Exception as exc:
+        print(f"ERROR: post-apply verification plan failed: {exc}", file=sys.stderr)
+        return 1
+    _print_post_apply_verification_plan(plan, plan_id=plan_id)
+    return 0
+
+
+def _cmd_post_apply_verification_plans(args) -> int:
+    limit = 25
+    status = _flag_val(args, "--status")
+    if "--limit" in args:
+        try:
+            limit = int(_flag_val(args, "--limit"))
+        except (TypeError, ValueError):
+            print("ERROR: --limit needs an integer", file=sys.stderr)
+            return 1
+    conn = database.init_db()
+    rows = database.list_post_apply_verification_plans(
+        conn, status=status, limit=limit)
+    _rule(f"POST-APPLY VERIFICATION PLANS ({len(rows)})")
+    if not rows:
+        print("(none)")
+        return 0
+    for row in rows:
+        print(f"#{row['id']}  {row['generated_at']}  "
+              f"attempt={row['application_attempt_id']} "
+              f"status={row['status']} risk={row['risk_level']} "
+              f"required={row['required_checks']} optional={row['optional_checks']}")
+    return 0
+
+
+def _cmd_post_apply_verification_plan(args) -> int:
+    if not args:
+        print("ERROR: --post-apply-verification-plan needs a PLAN_ID",
+              file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    try:
+        plan_id = _parse_id_or_latest(
+            conn, args[0], _latest_post_apply_verification_plan_id,
+            "post-apply verification plan")
+    except (ValueError, TypeError):
+        print("ERROR: PLAN_ID must be an integer or 'latest'", file=sys.stderr)
+        return 1
+    row = database.get_post_apply_verification_plan(conn, plan_id)
+    if row is None:
+        print(f"ERROR: no post-apply verification plan {args[0]}", file=sys.stderr)
+        return 1
+    plan = loop_improvement_post_apply_verification.plan_from_row(row)
+    _print_post_apply_verification_plan(plan, plan_id=row["id"])
+    return 0
+
+
+def _cmd_post_apply_verification_report(args) -> int:
+    if not args:
+        print("ERROR: --post-apply-verification-report needs a PLAN_ID",
+              file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    try:
+        plan_id = _parse_id_or_latest(
+            conn, args[0], _latest_post_apply_verification_plan_id,
+            "post-apply verification plan")
+    except (ValueError, TypeError):
+        print("ERROR: PLAN_ID must be an integer or 'latest'", file=sys.stderr)
+        return 1
+    engine = loop_improvement_post_apply_verification.PostApplyVerificationEngine(
+        conn)
+    try:
+        report = engine.create_report(plan_id)
+        report_id = engine.save_report(report)
+        markdown_path = None
+        if "--save-report" in args:
+            md = engine.save_markdown_report(report_id, report)
+            markdown_path = md.report_path
+    except ValueError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    except Exception as exc:
+        print(f"ERROR: post-apply verification report failed: {exc}", file=sys.stderr)
+        return 1
+    _print_post_apply_verification_report(
+        report, report_id=report_id, markdown_path=markdown_path)
+    return 0
+
+
+def _cmd_set_post_apply_verification_status(args) -> int:
+    if len(args) < 2:
+        print(
+            "ERROR: --set-post-apply-verification-status needs PLAN_ID STATUS",
+            file=sys.stderr,
+        )
+        return 1
+    status = args[1]
+    if status not in loop_improvement_post_apply_verification.PLAN_STATUSES:
+        print(
+            "ERROR: STATUS must be planned, manually_verified, failed, blocked, or deferred",
+            file=sys.stderr,
+        )
+        return 1
+    conn = database.init_db()
+    try:
+        plan_id = _parse_id_or_latest(
+            conn, args[0], _latest_post_apply_verification_plan_id,
+            "post-apply verification plan")
+    except (ValueError, TypeError):
+        print("ERROR: PLAN_ID must be an integer or 'latest'", file=sys.stderr)
+        return 1
+    if database.get_post_apply_verification_plan(conn, plan_id) is None:
+        print(f"ERROR: no post-apply verification plan {args[0]}", file=sys.stderr)
+        return 1
+    database.update_post_apply_verification_status(conn, plan_id, status)
+    print(f"post-apply verification plan {plan_id} status -> {status}")
+    print("No command was executed.")
+    print("No patch was applied.")
+    return 0
+
+
 def _cmd_archive_external_job(args, unarchive=False) -> int:
     import external_agent_jobs as eaj
     if not args:
@@ -7732,6 +7989,16 @@ def main() -> int:
         return _cmd_loop_improvement_rollback_snapshot(args[1:])
     if args and args[0] == "--preview-loop-improvement-rollback-restore":
         return _cmd_preview_loop_improvement_rollback_restore(args[1:])
+    if args and args[0] == "--create-post-apply-verification-plan":
+        return _cmd_create_post_apply_verification_plan(args[1:])
+    if args and args[0] == "--post-apply-verification-plans":
+        return _cmd_post_apply_verification_plans(args[1:])
+    if args and args[0] == "--post-apply-verification-plan":
+        return _cmd_post_apply_verification_plan(args[1:])
+    if args and args[0] == "--post-apply-verification-report":
+        return _cmd_post_apply_verification_report(args[1:])
+    if args and args[0] == "--set-post-apply-verification-status":
+        return _cmd_set_post_apply_verification_status(args[1:])
     if args and args[0] == "--replay":
         return _cmd_replay(args[1:])
     if args and args[0] == "--templates":
