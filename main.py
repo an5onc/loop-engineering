@@ -32,6 +32,7 @@ import observatory_action_review
 import observatory_drilldown
 import loop_improvement
 import loop_improvement_actions
+import loop_improvement_handoff
 import loop_improvement_review
 import observatory_reports
 import observatory_remediation
@@ -112,6 +113,8 @@ COMMANDS:
   --set-loop-improvement-action-status ID open|in_progress|completed|dismissed|blocked
   --set-loop-improvement-action-notes ID "notes" / --loop-improvement-actions-report
   --loop-improvement-action-batches / --loop-improvement-action-batch ID
+  --handoff-loop-improvement-action ACTION_ID [--type dry_run_plan|loop_task|external_agent_job|implementation_packet]
+  --loop-improvement-handoffs / --loop-improvement-handoff ID
   --replay LOOP_ID            replay a prior loop
   --paused                    list paused external-agent loops
   --resume LOOP_ID [--external-completion-file PATH | --external-completion-text 'JSON'] [--commit]
@@ -4055,6 +4058,22 @@ def _cmd_loop_improvement_action(args) -> int:
     for event in events:
         print(f"- {event['created_at']} {event['event_type']} "
               f"{event['status_before']} -> {event['status_after']}")
+    handoffs = database.list_loop_improvement_handoffs_for_action(conn, action.id, 10)
+    _rule("HANDOFFS")
+    if not handoffs:
+        print("(none)")
+    for h in handoffs:
+        print(f"- #{h['id']} type={h['handoff_type']} status={h['status']} "
+              f"dry_run={bool(h['dry_run'])}")
+        print(f"  command: python3 main.py --loop-improvement-handoff {h['id']}")
+    _rule("HANDOFF COMMANDS")
+    print(f"- python3 main.py --handoff-loop-improvement-action {action.id}")
+    print(f"- python3 main.py --handoff-loop-improvement-action {action.id} "
+          f"--type implementation_packet")
+    print(f"- python3 main.py --handoff-loop-improvement-action {action.id} "
+          f"--type loop_task")
+    print(f"- python3 main.py --handoff-loop-improvement-action {action.id} "
+          f"--type external_agent_job --external-coder codex")
     return 0
 
 
@@ -4170,6 +4189,289 @@ def _cmd_loop_improvement_actions_report(args) -> int:
     _rule("LOOP IMPROVEMENT ACTIONS REPORT")
     print(f"Markdown     : {md.report_path}")
     print(f"Bytes written: {md.bytes_written}")
+    return 0
+
+
+def _latest_loop_improvement_handoff_id(conn):
+    rows = database.list_loop_improvement_handoffs(conn, 1)
+    return rows[0]["id"] if rows else None
+
+
+def _cmd_handoff_loop_improvement_action(args) -> int:
+    if not args:
+        print("ERROR: --handoff-loop-improvement-action needs an ACTION_ID",
+              file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    try:
+        action_id = _parse_id_or_latest(
+            conn, args[0], _latest_improvement_action_id,
+            "loop improvement action")
+    except (ValueError, TypeError):
+        print("ERROR: ACTION_ID must be an integer or 'latest'", file=sys.stderr)
+        return 1
+    handoff_type = _flag_val(args, "--type") or "dry_run_plan"
+    target_loop_type = _flag_val(args, "--loop-type") or "code_build"
+    target_workspace = _flag_val(args, "--workspace") or "default"
+    external_coder = _flag_val(args, "--external-coder") or "codex"
+    confirm_loop = "--confirm-create-loop" in args
+    confirm_external = "--confirm-create-external-job" in args
+    if confirm_loop and confirm_external:
+        print("ERROR: choose only one confirmation flag", file=sys.stderr)
+        return 1
+    if confirm_loop and handoff_type == "dry_run_plan":
+        handoff_type = "loop_task"
+    if confirm_external and handoff_type == "dry_run_plan":
+        handoff_type = "external_agent_job"
+    if confirm_loop and handoff_type != "loop_task":
+        print("ERROR: --confirm-create-loop requires --type loop_task", file=sys.stderr)
+        return 1
+    if confirm_external and handoff_type != "external_agent_job":
+        print("ERROR: --confirm-create-external-job requires --type external_agent_job",
+              file=sys.stderr)
+        return 1
+    try:
+        engine = loop_improvement_handoff.LoopImprovementHandoffEngine(conn)
+        if confirm_loop:
+            return _create_loop_improvement_handoff_loop(
+                conn, engine, action_id, handoff_type, target_loop_type,
+                target_workspace, external_coder, args)
+        if confirm_external:
+            handoff = _create_loop_improvement_external_job_handoff(
+                conn, engine, action_id, handoff_type, target_loop_type,
+                target_workspace, external_coder)
+        else:
+            handoff = engine.create_handoff(
+                action_id,
+                handoff_type=handoff_type,
+                target_loop_type=target_loop_type,
+                target_workspace=target_workspace,
+                external_coder=external_coder,
+            )
+    except ValueError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    _print_loop_improvement_handoff(handoff, conn)
+    return 0
+
+
+def _create_loop_improvement_handoff_loop(conn, engine, action_id, handoff_type,
+                                          target_loop_type, target_workspace,
+                                          external_coder, args) -> int:
+    action = loop_improvement_actions.LoopImprovementActionEngine(
+        conn).get_action(action_id, record_view=False)
+    task = engine.generate_task(action)
+    loop = REGISTRY.get_loop(target_loop_type)
+    if loop is None:
+        print(f"ERROR: no loop named '{target_loop_type}'. Try: python main.py --loops",
+              file=sys.stderr)
+        return 1
+    ws_manager = project_workspace.WorkspaceManager(conn)
+    ws = ws_manager.get_workspace(target_workspace)
+    if ws is None:
+        print(f"ERROR: no workspace '{target_workspace}'. Try: python main.py --workspaces",
+              file=sys.stderr)
+        return 1
+    roles, role_errors = loop_engine_mod.resolve_roles(loop, AGENTS, {})
+    if role_errors:
+        print(f"ERROR: could not resolve agents: {role_errors}", file=sys.stderr)
+        return 1
+    commit = "--commit" in args
+    commit_message = _flag_val(args, "--commit-message")
+    min_conf = None
+    if _flag_val(args, "--min-reviewer-confidence"):
+        try:
+            min_conf = float(_flag_val(args, "--min-reviewer-confidence"))
+        except ValueError:
+            print("ERROR: --min-reviewer-confidence needs a number", file=sys.stderr)
+            return 1
+    require_approval = "--require-approval" in args
+    auto_approve_low_risk = "--auto-approve-low-risk" in args
+    approval_mode = _flag_val(args, "--approval-mode")
+    if approval_mode is None:
+        approval_mode = "interactive" if require_approval else "none"
+    approval_policy = approval_gates.ApprovalPolicy(
+        name="cli", enabled=require_approval,
+        auto_approve_low_risk=auto_approve_low_risk)
+    approval_engine = approval_gates.ApprovalGateEngine(
+        approval_policy, mode=approval_mode)
+    before_loop_id = _latest_loop_id(conn)
+    rc = _execute_run(
+        conn, task, loop, ws, roles, {}, approval_engine, min_conf, commit,
+        commit_message, memory_mode="off", context_mode="off",
+        intake_bundle=None, external_coder=None)
+    after_loop_id = _latest_loop_id(conn)
+    created_loop_id = after_loop_id if after_loop_id != before_loop_id else None
+    if created_loop_id is not None:
+        handoff = engine.create_handoff(
+            action_id,
+            handoff_type=handoff_type,
+            target_loop_type=target_loop_type,
+            target_workspace=target_workspace,
+            external_coder=external_coder,
+            confirm_create_loop=True,
+            created_loop_id=created_loop_id,
+        )
+        _print_loop_improvement_handoff(handoff, conn)
+    return rc
+
+
+def _create_loop_improvement_external_job_handoff(conn, engine, action_id, handoff_type,
+                                                  target_loop_type, target_workspace,
+                                                  external_coder):
+    import external_agent_jobs as eaj
+
+    action = loop_improvement_actions.LoopImprovementActionEngine(
+        conn).get_action(action_id, record_view=False)
+    loop = REGISTRY.get_loop(target_loop_type)
+    if loop is None:
+        raise ValueError(f"no loop named '{target_loop_type}'")
+    adapter = EXTERNAL.get(external_coder)
+    if adapter is None:
+        raise ValueError(f"unknown external coder '{external_coder}'")
+    ws_manager = project_workspace.WorkspaceManager(conn)
+    ws = ws_manager.get_workspace(target_workspace)
+    if ws is None:
+        raise ValueError(f"no workspace '{target_workspace}'")
+    workspace_errors = ws_manager.validate_workspace(ws)
+    if workspace_errors:
+        raise ValueError("workspace validation failed: " + "; ".join(workspace_errors))
+    allowed_tools = []
+    if loop.filesystem_enabled:
+        allowed_tools.append("filesystem")
+    if loop.terminal_enabled:
+        allowed_tools.append("terminal")
+    if getattr(loop, "git_enabled", False):
+        allowed_tools.append("git")
+    loop_id = (action.affected_loop_ids or [None])[-1]
+    task = engine.generate_task(action)
+    plan = ("Create a manual external-agent handoff for loop improvement action "
+            f"#{action.id}. Do not execute suggested commands automatically; "
+            "implement only within allowed workspace paths and return completion JSON.")
+    mgr = eaj.ExternalAgentJobManager(conn)
+    job = mgr.create_job(
+        loop_id, 1, adapter.name, ws.name, ws.root_path,
+        priority=eaj.DEFAULT_PRIORITY,
+        labels=["loop-improvement", "handoff"],
+        notes=f"Loop improvement action #{action.id} handoff")
+    req = external_agents.ExternalAgentRequest(
+        loop_id=loop_id, attempt_number=1, agent_name=adapter.name,
+        task=task, plan=plan, workspace_name=ws.name, workspace_root=ws.root_path,
+        allowed_write_paths=list(ws.allowed_write_paths),
+        allowed_command_paths=list(ws.allowed_command_paths),
+        dry_run=True, created_at="")
+    prompt, safe, warnings = adapter.build_handoff(req)
+    if not safe:
+        raise ValueError("external handoff prompt failed safety checks: "
+                         + "; ".join(warnings))
+    packet = mgr.create_packet(
+        job, task, plan, list(ws.allowed_write_paths),
+        list(ws.allowed_command_paths), allowed_tools,
+        context_summary="Loop improvement action metadata only.",
+        memory_summary="",
+        project_intelligence_summary="",
+        context_pack_summary="",
+        reviewer_feedback="",
+        test_analyst_feedback="")
+    saved = mgr.save_packet(job, packet, prompt)
+    mgr.update_job_status(job.id, eaj.WAITING_FOR_EXTERNAL_AGENT)
+    handoff = engine.create_handoff(
+        action_id,
+        handoff_type=handoff_type,
+        target_loop_type=target_loop_type,
+        target_workspace=target_workspace,
+        external_coder=external_coder,
+        confirm_create_external_job=True,
+        created_external_job_id=job.id,
+    )
+    database.save_loop_improvement_handoff_event(
+        conn,
+        handoff.id,
+        action_id,
+        "external_job_packet_created",
+        json.dumps({
+            "job_id": job.id,
+            "job_dir": saved["job_dir"],
+            "packet_safe": saved["packet_safe"],
+            "packet_safe_reasons": saved["packet_safe_reasons"],
+        }, sort_keys=True),
+    )
+    return handoff
+
+
+def _print_loop_improvement_handoff(handoff, conn):
+    _rule("LOOP IMPROVEMENT HANDOFF")
+    print(f"Handoff ID        : {handoff.id}")
+    print(f"Action ID         : {handoff.action_id}")
+    print(f"Proposal ID       : {handoff.source_proposal_id}")
+    print(f"Type              : {handoff.handoff_type}")
+    print(f"Status            : {handoff.status}")
+    print(f"Scope             : {handoff.implementation_scope}")
+    print(f"Target            : {handoff.target_type}/{handoff.target_name}")
+    print(f"Target loop type  : {handoff.target_loop_type}")
+    print(f"Target workspace  : {handoff.target_workspace}")
+    print(f"External coder    : {handoff.external_coder}")
+    print(f"Created loop      : {handoff.created_loop_id or '(none)'}")
+    print(f"Created job       : {handoff.created_external_job_id or '(none)'}")
+    print(f"Packet path       : {handoff.packet_path or '(none)'}")
+    print(f"Dry run           : {handoff.dry_run}")
+    print(f"Created at        : {handoff.created_at}")
+    _rule("GENERATED TASK")
+    print(handoff.generated_task)
+    _rule("SUGGESTED COMMAND")
+    print(handoff.suggested_command)
+    _rule("SAFETY NOTES")
+    for note in handoff.safety_notes:
+        print(f"- {note}")
+    events = database.get_loop_improvement_handoff_events(conn, handoff.id)
+    _rule("EVENTS")
+    if not events:
+        print("(none)")
+    for event in events:
+        print(f"- {event['created_at']} {event['event_type']} {event['details_json']}")
+
+
+def _cmd_loop_improvement_handoffs(args) -> int:
+    limit = 20
+    if "--limit" in args:
+        try:
+            limit = int(_flag_val(args, "--limit"))
+        except (TypeError, ValueError):
+            print("ERROR: --limit needs an integer", file=sys.stderr)
+            return 1
+    conn = database.init_db()
+    rows = database.list_loop_improvement_handoffs(conn, limit)
+    _rule(f"LOOP IMPROVEMENT HANDOFFS ({len(rows)})")
+    if not rows:
+        print("(none)")
+        return 0
+    for row in rows:
+        print(f"#{row['id']} action={row['action_id']} proposal={row['source_proposal_id']} "
+              f"type={row['handoff_type']} status={row['status']} "
+              f"scope={row['implementation_scope']} dry_run={bool(row['dry_run'])}")
+        print(f"    target: {row['target_type']}/{row['target_name']}")
+        if row["packet_path"]:
+            print(f"    packet: {row['packet_path']}")
+    return 0
+
+
+def _cmd_loop_improvement_handoff(args) -> int:
+    if not args:
+        print("ERROR: --loop-improvement-handoff needs a HANDOFF_ID", file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    try:
+        handoff_id = _parse_id_or_latest(
+            conn, args[0], _latest_loop_improvement_handoff_id,
+            "loop improvement handoff")
+    except (ValueError, TypeError):
+        print("ERROR: HANDOFF_ID must be an integer or 'latest'", file=sys.stderr)
+        return 1
+    row = database.get_loop_improvement_handoff(conn, handoff_id)
+    if row is None:
+        print(f"ERROR: no loop improvement handoff {args[0]}", file=sys.stderr)
+        return 1
+    _print_loop_improvement_handoff(loop_improvement_handoff.handoff_from_row(row), conn)
     return 0
 
 
@@ -5938,6 +6240,12 @@ def main() -> int:
         return _cmd_loop_improvement_action_batch(args[1:])
     if args and args[0] == "--loop-improvement-actions-report":
         return _cmd_loop_improvement_actions_report(args[1:])
+    if args and args[0] == "--handoff-loop-improvement-action":
+        return _cmd_handoff_loop_improvement_action(args[1:])
+    if args and args[0] == "--loop-improvement-handoffs":
+        return _cmd_loop_improvement_handoffs(args[1:])
+    if args and args[0] == "--loop-improvement-handoff":
+        return _cmd_loop_improvement_handoff(args[1:])
     if args and args[0] == "--replay":
         return _cmd_replay(args[1:])
     if args and args[0] == "--templates":

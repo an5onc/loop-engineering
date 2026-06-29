@@ -288,6 +288,53 @@ action commands never execute suggested commands, call Ollama, create loops,
 create external jobs, apply proposals, mutate proposal status, commit, or mutate
 loop/agent/prompt/quality-gate/stop-condition definitions.
 
+# Loop Engineering — Stage 5.3
+
+## What's new in 5.3 — Loop Improvement Implementation Handoff
+
+Stage 5.3 adds a controlled bridge from manual loop-improvement actions to
+implementation-ready handoffs. Handoffs turn action metadata into deterministic
+implementation tasks, loop-task commands, external-agent job commands, or
+Markdown implementation packets without applying improvements automatically.
+
+```bash
+python3 main.py --handoff-loop-improvement-action 1
+python3 main.py --handoff-loop-improvement-action 1 --type dry_run_plan
+python3 main.py --handoff-loop-improvement-action 1 --type implementation_packet
+python3 main.py --handoff-loop-improvement-action 1 --type loop_task
+python3 main.py --handoff-loop-improvement-action 1 --type loop_task --confirm-create-loop
+python3 main.py --handoff-loop-improvement-action 1 --type external_agent_job --external-coder codex
+python3 main.py --handoff-loop-improvement-action 1 --type external_agent_job --external-coder codex --confirm-create-external-job
+python3 main.py --loop-improvement-handoffs
+python3 main.py --loop-improvement-handoff 1
+```
+
+Default handoff mode is `dry_run_plan`. It saves handoff metadata and prints the
+manual command that would be used; it does not create a loop, create an external
+job, call Ollama, execute commands, edit files, or mutate definitions.
+
+`implementation_packet` creates a structured Markdown packet under:
+
+```
+loop_improvement_handoff_packets/loop_improvement_handoff_ACTIONID_YYYYMMDD_HHMMSS.md
+```
+
+The packet includes source action/proposal IDs, implementation scope, generated
+task, safety constraints, suggested manual commands, a review checklist, and
+next steps. Implementation scopes are inferred from proposal target type, such
+as `quality_gate_update`, `prompt_contract_update`, `testing_update`,
+`external_agent_flow_update`, and `observability_update`.
+
+`loop_task` and `external_agent_job` remain dry-run handoffs unless explicitly
+confirmed with `--confirm-create-loop` or `--confirm-create-external-job`.
+Confirmed creation routes through existing Loop Engineering pathways and keeps
+their workspace, approval, command, Git, and external-agent safety checks.
+
+Safety: improvement handoffs never execute suggested commands, never auto-commit,
+never run Claude/Codex automatically, never bypass approvals/workspace profiles,
+and never mutate loop definitions, agent definitions, prompts, quality gates,
+stop conditions, jobs, or workspace files from dry-run or packet generation.
+
 # Loop Engineering — Stage 4.9
 
 ## What's new in 4.9 — Stage 4 Final Audit and Readiness

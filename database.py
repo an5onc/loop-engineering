@@ -709,6 +709,54 @@ CREATE TABLE IF NOT EXISTS loop_improvement_action_markdown_reports (
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS loop_improvement_handoffs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    action_id INTEGER NOT NULL,
+    source_review_id INTEGER,
+    source_proposal_id INTEGER,
+    source_plan_id INTEGER,
+    handoff_type TEXT,
+    generated_task TEXT,
+    implementation_scope TEXT,
+    target_type TEXT,
+    target_name TEXT,
+    target_loop_type TEXT,
+    target_workspace TEXT,
+    external_coder TEXT,
+    suggested_command TEXT,
+    safety_notes_json TEXT,
+    status TEXT,
+    created_loop_id INTEGER,
+    created_external_job_id INTEGER,
+    dry_run INTEGER,
+    packet_path TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (action_id) REFERENCES loop_improvement_action_items(id)
+);
+
+CREATE TABLE IF NOT EXISTS loop_improvement_handoff_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    handoff_id INTEGER,
+    action_id INTEGER,
+    event_type TEXT,
+    details_json TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (handoff_id) REFERENCES loop_improvement_handoffs(id)
+);
+
+CREATE TABLE IF NOT EXISTS loop_improvement_handoff_packets (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    handoff_id INTEGER NOT NULL,
+    action_id INTEGER NOT NULL,
+    packet_path TEXT,
+    packet_format TEXT,
+    content_hash TEXT,
+    bytes_written INTEGER,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (handoff_id) REFERENCES loop_improvement_handoffs(id),
+    FOREIGN KEY (action_id) REFERENCES loop_improvement_action_items(id)
+);
+
 CREATE TABLE IF NOT EXISTS project_workspaces (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT UNIQUE,
@@ -2276,6 +2324,144 @@ def list_loop_improvement_action_markdown_reports(conn, limit=20):
     return conn.execute(
         "SELECT * FROM loop_improvement_action_markdown_reports "
         "ORDER BY id DESC LIMIT ?",
+        (limit,),
+    ).fetchall()
+
+
+def save_loop_improvement_handoff(
+    conn,
+    action_id,
+    source_review_id,
+    source_proposal_id,
+    source_plan_id,
+    handoff_type,
+    generated_task,
+    implementation_scope,
+    target_type,
+    target_name,
+    target_loop_type,
+    target_workspace,
+    external_coder,
+    suggested_command,
+    safety_notes_json,
+    status,
+    created_loop_id=None,
+    created_external_job_id=None,
+    dry_run=True,
+    packet_path=None,
+) -> int:
+    cur = conn.execute(
+        "INSERT INTO loop_improvement_handoffs "
+        "(action_id, source_review_id, source_proposal_id, source_plan_id, "
+        "handoff_type, generated_task, implementation_scope, target_type, target_name, "
+        "target_loop_type, target_workspace, external_coder, suggested_command, "
+        "safety_notes_json, status, created_loop_id, created_external_job_id, "
+        "dry_run, packet_path) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        (
+            action_id,
+            source_review_id,
+            source_proposal_id,
+            source_plan_id,
+            handoff_type,
+            generated_task,
+            implementation_scope,
+            target_type,
+            target_name,
+            target_loop_type,
+            target_workspace,
+            external_coder,
+            suggested_command,
+            safety_notes_json,
+            status,
+            created_loop_id,
+            created_external_job_id,
+            1 if dry_run else 0,
+            packet_path,
+        ),
+    )
+    conn.commit()
+    return cur.lastrowid
+
+
+def update_loop_improvement_handoff_packet_path(conn, handoff_id, packet_path,
+                                                status=None):
+    if status is None:
+        conn.execute(
+            "UPDATE loop_improvement_handoffs SET packet_path=? WHERE id=?",
+            (packet_path, handoff_id),
+        )
+    else:
+        conn.execute(
+            "UPDATE loop_improvement_handoffs SET packet_path=?, status=? WHERE id=?",
+            (packet_path, status, handoff_id),
+        )
+    conn.commit()
+
+
+def get_loop_improvement_handoff(conn, handoff_id):
+    return conn.execute(
+        "SELECT * FROM loop_improvement_handoffs WHERE id=?", (handoff_id,)
+    ).fetchone()
+
+
+def list_loop_improvement_handoffs(conn, limit=20):
+    return conn.execute(
+        "SELECT * FROM loop_improvement_handoffs ORDER BY id DESC LIMIT ?",
+        (limit,),
+    ).fetchall()
+
+
+def list_loop_improvement_handoffs_for_action(conn, action_id, limit=20):
+    return conn.execute(
+        "SELECT * FROM loop_improvement_handoffs WHERE action_id=? "
+        "ORDER BY id DESC LIMIT ?",
+        (action_id, limit),
+    ).fetchall()
+
+
+def save_loop_improvement_handoff_event(conn, handoff_id, action_id, event_type,
+                                        details_json="{}") -> int:
+    cur = conn.execute(
+        "INSERT INTO loop_improvement_handoff_events "
+        "(handoff_id, action_id, event_type, details_json) VALUES (?,?,?,?)",
+        (handoff_id, action_id, event_type, details_json),
+    )
+    conn.commit()
+    return cur.lastrowid
+
+
+def get_loop_improvement_handoff_events(conn, handoff_id):
+    return conn.execute(
+        "SELECT * FROM loop_improvement_handoff_events WHERE handoff_id=? ORDER BY id",
+        (handoff_id,),
+    ).fetchall()
+
+
+def save_loop_improvement_handoff_packet(conn, handoff_id, action_id, packet_path,
+                                         packet_format, content_hash,
+                                         bytes_written) -> int:
+    cur = conn.execute(
+        "INSERT INTO loop_improvement_handoff_packets "
+        "(handoff_id, action_id, packet_path, packet_format, content_hash, bytes_written) "
+        "VALUES (?,?,?,?,?,?)",
+        (handoff_id, action_id, packet_path, packet_format, content_hash, bytes_written),
+    )
+    conn.commit()
+    return cur.lastrowid
+
+
+def get_loop_improvement_handoff_packet(conn, handoff_id):
+    return conn.execute(
+        "SELECT * FROM loop_improvement_handoff_packets "
+        "WHERE handoff_id=? ORDER BY id DESC LIMIT 1",
+        (handoff_id,),
+    ).fetchone()
+
+
+def list_loop_improvement_handoff_packets(conn, limit=20):
+    return conn.execute(
+        "SELECT * FROM loop_improvement_handoff_packets ORDER BY id DESC LIMIT ?",
         (limit,),
     ).fetchall()
 
