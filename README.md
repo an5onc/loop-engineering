@@ -1,4 +1,154 @@
-# Loop Engineering — Stage 7
+# Loop Engineering — Stage 8
+
+## What's new in 8 — Multi-Project Governance & Fleet Reporting
+
+Stage 8 builds on Stage 7's metadata-only multi-project layer and adds
+**governance**: fleet-level policies, deterministic policy evaluation into
+findings, a manual review queue, finding-based exception waivers, fleet
+governance reports, trend snapshots, an action planner, evidence export, and
+final Stage 8 audit readiness. It does **not** introduce cross-project execution.
+
+### Core invariant
+
+Stage 8 reads only SQLite metadata and safe project-registry metadata. It never
+executes commands, calls Ollama, creates loops/jobs, reads protected file
+contents, or writes into a registered project root. Suggested commands are
+advisory **text only**.
+
+### 8.0 Governance policy registry
+
+Policies are named sets of deterministic rules from a fixed built-in
+`RULE_REGISTRY` (fleet rules: `require_validation`, `validation_not_failing`,
+`not_stale`, `blocked_project_handling`, `approval_freshness`,
+`handoff_schedule_integrity`, `audit_recency`, `require_safety_profile`).
+
+```bash
+python3 main.py --create-governance-policy --default     # seed the fleet baseline
+python3 main.py --create-governance-policy strict --rules not_stale,validation_not_failing,audit_recency
+python3 main.py --governance-policies
+python3 main.py --governance-policy POLICY_ID
+python3 main.py --set-governance-policy-status POLICY_ID inactive
+```
+
+### 8.1 Policy evaluation engine
+
+Evaluates all **active** policies against Stage 7 metadata (projects,
+validations, approvals, handoffs, schedules, audits) and records one **finding**
+per (policy, rule, subject). Active, unexpired waivers suppress matching
+findings (status `WAIVED`).
+
+```bash
+python3 main.py --evaluate-governance-policies --save-report
+python3 main.py --governance-evaluations
+python3 main.py --governance-evaluation EVALUATION_ID
+```
+
+### 8.2 Fleet governance report
+
+Read-only fleet summary: project health, stale roots, blocked projects, missing
+validations, planning coverage, and the latest policy pass/fail counts.
+
+```bash
+python3 main.py --fleet-governance-report --save-report
+python3 main.py --fleet-governance-reports
+python3 main.py --fleet-governance-report-show REPORT_ID
+```
+
+### 8.3 Governance review queue
+
+Converts non-passing findings into manual review items. Statuses: `open`,
+`acknowledged`, `waived`, `resolved`, `dismissed`, `blocked`. No automatic
+remediation or project mutation.
+
+```bash
+python3 main.py --create-governance-review-items EVALUATION_ID
+python3 main.py --governance-review-items --status open
+python3 main.py --set-governance-review-status ITEM_ID acknowledged
+```
+
+### 8.4 Exception / waiver registry
+
+Explicit, auditable waivers created **from a finding**, capturing that finding's
+signature plus a reason, owner, and optional expiry. Fail-closed: only `active`
+and **unexpired** waivers suppress; expired waivers stop suppressing findings.
+
+```bash
+python3 main.py --create-governance-waiver FINDING_ID --owner alice --reason "root on detached volume" --expiry-days 30
+python3 main.py --governance-waivers
+python3 main.py --set-governance-waiver-status WAIVER_ID revoked
+```
+
+### 8.5 Governance trend snapshot
+
+Tracks governance health over time from saved evaluations and fleet reports
+(counts and direction only — no file contents).
+
+```bash
+python3 main.py --governance-trends --save-report
+python3 main.py --governance-trend-snapshots
+python3 main.py --governance-trend-snapshot SNAPSHOT_ID
+```
+
+### 8.6 Governance action planner
+
+Generates a manual follow-up plan from unresolved findings. Suggested commands
+are **text only** and never executed.
+
+```bash
+python3 main.py --plan-governance-actions            # uses the latest evaluation
+python3 main.py --governance-action-plans
+python3 main.py --governance-action-plan PLAN_ID
+```
+
+### 8.7 Governance evidence export
+
+Exports a portable Markdown evidence packet (policy summaries, evaluation
+results, waiver metadata, review-queue state, fleet summary). Excludes protected
+file contents, secrets, and local DB snapshots.
+
+```bash
+python3 main.py --export-governance-evidence
+python3 main.py --governance-evidence-exports
+```
+
+### 8.8 Multi-project governance audit
+
+Audits Stage 8 metadata for completeness, referential integrity, expired-but-
+active waivers, and safety counters.
+
+```bash
+python3 main.py --multi-project-governance-audit --save-report
+python3 main.py --multi-project-governance-audits
+python3 main.py --multi-project-governance-audit-show latest
+```
+
+### 8.9 Final Stage 8 audit & Stage 9 readiness
+
+Verifies all Stage 8 modules, tables, CLI paths, report-path guards, and safety
+invariants, and reports **Stage 9 readiness**. Recommended Stage 9 theme:
+controlled cross-project execution *planning* (not execution by default).
+
+```bash
+python3 main.py --multi-project-stage8-audit --save-report
+python3 main.py --multi-project-stage8-audits
+python3 main.py --multi-project-stage8-audit-show latest
+```
+
+### Stage 8 tests
+
+```bash
+python3 -m unittest \
+  test_multi_project_governance_policies.py \
+  test_multi_project_governance_evaluation.py \
+  test_fleet_governance_reports.py \
+  test_governance_review_queue.py \
+  test_governance_waivers.py \
+  test_governance_trends.py \
+  test_governance_action_planner.py \
+  test_governance_evidence_export.py \
+  test_multi_project_governance_audit.py \
+  test_multi_project_stage8_audit.py
+```
 
 ## What's new in 7 — Multi-Project Operations
 

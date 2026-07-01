@@ -19,6 +19,8 @@ class AgentHandoffTests(unittest.TestCase):
             self.assertIn("Do not commit runtime artifacts", content)
             self.assertIn("Multi-Project Operations", content)
             self.assertIn("--plan-cross-project-work", content)
+            self.assertIn("Governance & Fleet Reporting", content)
+            self.assertIn("--evaluate-governance-policies", content)
 
     def test_check_requires_runtime_artifacts_ignored(self):
         import agent_handoff

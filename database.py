@@ -1661,6 +1661,260 @@ CREATE TABLE IF NOT EXISTS multi_project_stage7_audit_markdown_reports (
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (stage7_audit_id) REFERENCES multi_project_stage7_audits(id)
 );
+
+-- ===================================================================== --
+-- Stage 8 — Multi-Project Governance and Fleet Reporting                 --
+-- ===================================================================== --
+
+-- 8.0 Governance policy registry
+CREATE TABLE IF NOT EXISTS governance_policies (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    policy_key TEXT UNIQUE,
+    name TEXT,
+    description TEXT,
+    rule_keys_json TEXT,
+    severity_overrides_json TEXT,
+    status TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS governance_policy_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    policy_id INTEGER,
+    policy_key TEXT,
+    event_type TEXT,
+    detail TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 8.1 Policy evaluation engine
+CREATE TABLE IF NOT EXISTS governance_policy_evaluations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    generated_at TEXT,
+    overall_status TEXT,
+    total_findings INTEGER,
+    passed_findings INTEGER,
+    warning_findings INTEGER,
+    failed_findings INTEGER,
+    waived_findings INTEGER,
+    policy_keys_json TEXT,
+    summary TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS governance_policy_findings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    evaluation_id INTEGER NOT NULL,
+    policy_key TEXT,
+    rule_key TEXT,
+    subject TEXT,
+    severity TEXT,
+    status TEXT,
+    signature TEXT,
+    evidence TEXT,
+    message TEXT,
+    waiver_id INTEGER,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (evaluation_id) REFERENCES governance_policy_evaluations(id)
+);
+
+CREATE TABLE IF NOT EXISTS governance_policy_evaluation_markdown_reports (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    evaluation_id INTEGER NOT NULL,
+    report_path TEXT,
+    report_format TEXT,
+    content_hash TEXT,
+    bytes_written INTEGER,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (evaluation_id) REFERENCES governance_policy_evaluations(id)
+);
+
+-- 8.2 Fleet governance report
+CREATE TABLE IF NOT EXISTS fleet_governance_reports (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    generated_at TEXT,
+    summary_json TEXT,
+    sections_json TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS fleet_governance_markdown_reports (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    report_id INTEGER NOT NULL,
+    report_path TEXT,
+    report_format TEXT,
+    content_hash TEXT,
+    bytes_written INTEGER,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (report_id) REFERENCES fleet_governance_reports(id)
+);
+
+-- 8.3 Governance review queue
+CREATE TABLE IF NOT EXISTS governance_review_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    evaluation_id INTEGER,
+    finding_id INTEGER,
+    policy_key TEXT,
+    rule_key TEXT,
+    subject TEXT,
+    signature TEXT,
+    severity TEXT,
+    status TEXT,
+    notes TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS governance_review_item_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    review_item_id INTEGER NOT NULL,
+    event_type TEXT,
+    detail TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (review_item_id) REFERENCES governance_review_items(id)
+);
+
+-- 8.4 Exception / waiver registry
+CREATE TABLE IF NOT EXISTS governance_waivers (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    signature TEXT,
+    policy_key TEXT,
+    rule_key TEXT,
+    subject TEXT,
+    reason TEXT,
+    owner TEXT,
+    expiry TEXT,
+    status TEXT,
+    source_finding_id INTEGER,
+    source_evaluation_id INTEGER,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT
+);
+
+-- 8.5 Governance trend snapshot
+CREATE TABLE IF NOT EXISTS governance_trend_snapshots (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    generated_at TEXT,
+    summary_json TEXT,
+    points_json TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS governance_trend_markdown_reports (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    snapshot_id INTEGER NOT NULL,
+    report_path TEXT,
+    report_format TEXT,
+    content_hash TEXT,
+    bytes_written INTEGER,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (snapshot_id) REFERENCES governance_trend_snapshots(id)
+);
+
+-- 8.6 Governance action planner
+CREATE TABLE IF NOT EXISTS governance_action_plans (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    generated_at TEXT,
+    source_evaluation_id INTEGER,
+    total_items INTEGER,
+    suggested_commands_json TEXT,
+    safety_notes_json TEXT,
+    status TEXT,
+    summary TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS governance_action_plan_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    plan_id INTEGER NOT NULL,
+    policy_key TEXT,
+    rule_key TEXT,
+    subject TEXT,
+    description TEXT,
+    suggested_commands_json TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (plan_id) REFERENCES governance_action_plans(id)
+);
+
+CREATE TABLE IF NOT EXISTS governance_action_plan_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    plan_id INTEGER NOT NULL,
+    event_type TEXT,
+    detail TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (plan_id) REFERENCES governance_action_plans(id)
+);
+
+-- 8.7 Governance evidence export
+CREATE TABLE IF NOT EXISTS governance_evidence_exports (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    generated_at TEXT,
+    report_path TEXT,
+    report_format TEXT,
+    content_hash TEXT,
+    bytes_written INTEGER,
+    summary_json TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 8.8 Multi-project governance audit
+CREATE TABLE IF NOT EXISTS multi_project_governance_audits (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    generated_at TEXT,
+    overall_status TEXT,
+    total_checks INTEGER,
+    passed_checks INTEGER,
+    warning_checks INTEGER,
+    failed_checks INTEGER,
+    blocked_checks INTEGER,
+    sections_json TEXT,
+    recommendations_json TEXT,
+    safety_notes_json TEXT,
+    next_steps_json TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS multi_project_governance_audit_markdown_reports (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    audit_id INTEGER NOT NULL,
+    report_path TEXT,
+    report_format TEXT,
+    content_hash TEXT,
+    bytes_written INTEGER,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (audit_id) REFERENCES multi_project_governance_audits(id)
+);
+
+-- 8.9 Final Stage 8 audit
+CREATE TABLE IF NOT EXISTS multi_project_stage8_audits (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    generated_at TEXT,
+    overall_status TEXT,
+    total_checks INTEGER,
+    passed_checks INTEGER,
+    warning_checks INTEGER,
+    failed_checks INTEGER,
+    blocked_checks INTEGER,
+    sections_json TEXT,
+    recommendations_json TEXT,
+    stage9_readiness_json TEXT,
+    safety_notes_json TEXT,
+    next_steps_json TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS multi_project_stage8_audit_markdown_reports (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    stage8_audit_id INTEGER NOT NULL,
+    report_path TEXT,
+    report_format TEXT,
+    content_hash TEXT,
+    bytes_written INTEGER,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (stage8_audit_id) REFERENCES multi_project_stage8_audits(id)
+);
 """
 
 
@@ -5265,3 +5519,481 @@ def get_multi_project_stage7_audit_markdown_report(conn, audit_id):
     return conn.execute(
         "SELECT * FROM multi_project_stage7_audit_markdown_reports "
         "WHERE stage7_audit_id=? ORDER BY id DESC LIMIT 1", (audit_id,)).fetchone()
+
+
+# ===================================================================== #
+# Stage 8 — Multi-Project Governance and Fleet Reporting                 #
+# ===================================================================== #
+def _gov_now() -> str:
+    import datetime as _dt
+    return _dt.datetime.now().isoformat(timespec="seconds")
+
+
+# --- 8.0 Governance policy registry ------------------------------------- #
+def create_governance_policy(conn, policy_key, name, description, rule_keys_json,
+                             severity_overrides_json, status="active") -> int:
+    now = _gov_now()
+    cur = conn.execute(
+        "INSERT INTO governance_policies (policy_key, name, description, "
+        "rule_keys_json, severity_overrides_json, status, updated_at) "
+        "VALUES (?,?,?,?,?,?,?)",
+        (policy_key, name, description, rule_keys_json, severity_overrides_json,
+         status, now))
+    conn.commit()
+    return cur.lastrowid
+
+
+def get_governance_policy(conn, policy_id):
+    return conn.execute(
+        "SELECT * FROM governance_policies WHERE id=?", (policy_id,)).fetchone()
+
+
+def get_governance_policy_by_key(conn, policy_key):
+    return conn.execute(
+        "SELECT * FROM governance_policies WHERE policy_key=?",
+        (policy_key,)).fetchone()
+
+
+def list_governance_policies(conn, limit=100):
+    return conn.execute(
+        "SELECT * FROM governance_policies ORDER BY policy_key LIMIT ?",
+        (limit,)).fetchall()
+
+
+def update_governance_policy_status(conn, policy_id, status) -> bool:
+    cur = conn.execute(
+        "UPDATE governance_policies SET status=?, updated_at=? WHERE id=?",
+        (status, _gov_now(), policy_id))
+    conn.commit()
+    return cur.rowcount > 0
+
+
+def save_governance_policy_event(conn, policy_id, policy_key, event_type,
+                                 detail=None) -> int:
+    cur = conn.execute(
+        "INSERT INTO governance_policy_events (policy_id, policy_key, event_type, "
+        "detail) VALUES (?,?,?,?)", (policy_id, policy_key, event_type, detail))
+    conn.commit()
+    return cur.lastrowid
+
+
+def list_governance_policy_events(conn, policy_id=None, limit=100):
+    if policy_id is not None:
+        return conn.execute(
+            "SELECT * FROM governance_policy_events WHERE policy_id=? "
+            "ORDER BY id DESC LIMIT ?", (policy_id, limit)).fetchall()
+    return conn.execute(
+        "SELECT * FROM governance_policy_events ORDER BY id DESC LIMIT ?",
+        (limit,)).fetchall()
+
+
+# --- 8.1 Policy evaluation engine --------------------------------------- #
+def save_governance_policy_evaluation(conn, generated_at, overall_status,
+                                      total_findings, passed_findings,
+                                      warning_findings, failed_findings,
+                                      waived_findings, policy_keys_json,
+                                      summary) -> int:
+    cur = conn.execute(
+        "INSERT INTO governance_policy_evaluations (generated_at, overall_status, "
+        "total_findings, passed_findings, warning_findings, failed_findings, "
+        "waived_findings, policy_keys_json, summary) VALUES (?,?,?,?,?,?,?,?,?)",
+        (generated_at, overall_status, total_findings, passed_findings,
+         warning_findings, failed_findings, waived_findings, policy_keys_json,
+         summary))
+    conn.commit()
+    return cur.lastrowid
+
+
+def get_governance_policy_evaluation(conn, evaluation_id):
+    return conn.execute(
+        "SELECT * FROM governance_policy_evaluations WHERE id=?",
+        (evaluation_id,)).fetchone()
+
+
+def list_governance_policy_evaluations(conn, limit=50):
+    return conn.execute(
+        "SELECT * FROM governance_policy_evaluations ORDER BY id DESC LIMIT ?",
+        (limit,)).fetchall()
+
+
+def save_governance_policy_finding(conn, evaluation_id, policy_key, rule_key,
+                                   subject, severity, status, signature,
+                                   evidence, message, waiver_id=None) -> int:
+    cur = conn.execute(
+        "INSERT INTO governance_policy_findings (evaluation_id, policy_key, "
+        "rule_key, subject, severity, status, signature, evidence, message, "
+        "waiver_id) VALUES (?,?,?,?,?,?,?,?,?,?)",
+        (evaluation_id, policy_key, rule_key, subject, severity, status,
+         signature, evidence, message, waiver_id))
+    conn.commit()
+    return cur.lastrowid
+
+
+def get_governance_policy_finding(conn, finding_id):
+    return conn.execute(
+        "SELECT * FROM governance_policy_findings WHERE id=?",
+        (finding_id,)).fetchone()
+
+
+def list_governance_policy_findings(conn, evaluation_id, limit=1000):
+    return conn.execute(
+        "SELECT * FROM governance_policy_findings WHERE evaluation_id=? "
+        "ORDER BY id LIMIT ?", (evaluation_id, limit)).fetchall()
+
+
+def save_governance_policy_evaluation_markdown_report(
+        conn, evaluation_id, report_path, report_format, content_hash,
+        bytes_written) -> int:
+    cur = conn.execute(
+        "INSERT INTO governance_policy_evaluation_markdown_reports (evaluation_id, "
+        "report_path, report_format, content_hash, bytes_written) "
+        "VALUES (?,?,?,?,?)",
+        (evaluation_id, report_path, report_format, content_hash, bytes_written))
+    conn.commit()
+    return cur.lastrowid
+
+
+def get_governance_policy_evaluation_markdown_report(conn, evaluation_id):
+    return conn.execute(
+        "SELECT * FROM governance_policy_evaluation_markdown_reports "
+        "WHERE evaluation_id=? ORDER BY id DESC LIMIT 1", (evaluation_id,)).fetchone()
+
+
+# --- 8.2 Fleet governance report ---------------------------------------- #
+def save_fleet_governance_report(conn, generated_at, summary_json,
+                                 sections_json) -> int:
+    cur = conn.execute(
+        "INSERT INTO fleet_governance_reports (generated_at, summary_json, "
+        "sections_json) VALUES (?,?,?)",
+        (generated_at, summary_json, sections_json))
+    conn.commit()
+    return cur.lastrowid
+
+
+def get_fleet_governance_report(conn, report_id):
+    return conn.execute(
+        "SELECT * FROM fleet_governance_reports WHERE id=?",
+        (report_id,)).fetchone()
+
+
+def list_fleet_governance_reports(conn, limit=20):
+    return conn.execute(
+        "SELECT * FROM fleet_governance_reports ORDER BY id DESC LIMIT ?",
+        (limit,)).fetchall()
+
+
+def save_fleet_governance_markdown_report(conn, report_id, report_path,
+                                          report_format, content_hash,
+                                          bytes_written) -> int:
+    cur = conn.execute(
+        "INSERT INTO fleet_governance_markdown_reports (report_id, report_path, "
+        "report_format, content_hash, bytes_written) VALUES (?,?,?,?,?)",
+        (report_id, report_path, report_format, content_hash, bytes_written))
+    conn.commit()
+    return cur.lastrowid
+
+
+def get_fleet_governance_markdown_report(conn, report_id):
+    return conn.execute(
+        "SELECT * FROM fleet_governance_markdown_reports WHERE report_id=? "
+        "ORDER BY id DESC LIMIT 1", (report_id,)).fetchone()
+
+
+# --- 8.3 Governance review queue ---------------------------------------- #
+def save_governance_review_item(conn, evaluation_id, finding_id, policy_key,
+                                rule_key, subject, signature, severity,
+                                status) -> int:
+    cur = conn.execute(
+        "INSERT INTO governance_review_items (evaluation_id, finding_id, "
+        "policy_key, rule_key, subject, signature, severity, status, updated_at) "
+        "VALUES (?,?,?,?,?,?,?,?,?)",
+        (evaluation_id, finding_id, policy_key, rule_key, subject, signature,
+         severity, status, _gov_now()))
+    conn.commit()
+    return cur.lastrowid
+
+
+def get_governance_review_item(conn, item_id):
+    return conn.execute(
+        "SELECT * FROM governance_review_items WHERE id=?", (item_id,)).fetchone()
+
+
+def list_governance_review_items(conn, status=None, limit=200):
+    if status:
+        return conn.execute(
+            "SELECT * FROM governance_review_items WHERE status=? "
+            "ORDER BY id DESC LIMIT ?", (status, limit)).fetchall()
+    return conn.execute(
+        "SELECT * FROM governance_review_items ORDER BY id DESC LIMIT ?",
+        (limit,)).fetchall()
+
+
+def update_governance_review_item_status(conn, item_id, status, notes=None) -> bool:
+    cur = conn.execute(
+        "UPDATE governance_review_items SET status=?, notes=COALESCE(?, notes), "
+        "updated_at=? WHERE id=?", (status, notes, _gov_now(), item_id))
+    conn.commit()
+    return cur.rowcount > 0
+
+
+def save_governance_review_item_event(conn, review_item_id, event_type,
+                                      detail=None) -> int:
+    cur = conn.execute(
+        "INSERT INTO governance_review_item_events (review_item_id, event_type, "
+        "detail) VALUES (?,?,?)", (review_item_id, event_type, detail))
+    conn.commit()
+    return cur.lastrowid
+
+
+# --- 8.4 Exception / waiver registry ------------------------------------ #
+def save_governance_waiver(conn, signature, policy_key, rule_key, subject,
+                           reason, owner, expiry, status, source_finding_id,
+                           source_evaluation_id) -> int:
+    now = _gov_now()
+    cur = conn.execute(
+        "INSERT INTO governance_waivers (signature, policy_key, rule_key, subject, "
+        "reason, owner, expiry, status, source_finding_id, source_evaluation_id, "
+        "updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+        (signature, policy_key, rule_key, subject, reason, owner, expiry, status,
+         source_finding_id, source_evaluation_id, now))
+    conn.commit()
+    return cur.lastrowid
+
+
+def get_governance_waiver(conn, waiver_id):
+    return conn.execute(
+        "SELECT * FROM governance_waivers WHERE id=?", (waiver_id,)).fetchone()
+
+
+def list_governance_waivers(conn, limit=200):
+    return conn.execute(
+        "SELECT * FROM governance_waivers ORDER BY id DESC LIMIT ?",
+        (limit,)).fetchall()
+
+
+def list_active_governance_waivers(conn):
+    return conn.execute(
+        "SELECT * FROM governance_waivers WHERE status='active'").fetchall()
+
+
+def update_governance_waiver_status(conn, waiver_id, status) -> bool:
+    cur = conn.execute(
+        "UPDATE governance_waivers SET status=?, updated_at=? WHERE id=?",
+        (status, _gov_now(), waiver_id))
+    conn.commit()
+    return cur.rowcount > 0
+
+
+# --- 8.5 Governance trend snapshot -------------------------------------- #
+def save_governance_trend_snapshot(conn, generated_at, summary_json,
+                                   points_json) -> int:
+    cur = conn.execute(
+        "INSERT INTO governance_trend_snapshots (generated_at, summary_json, "
+        "points_json) VALUES (?,?,?)", (generated_at, summary_json, points_json))
+    conn.commit()
+    return cur.lastrowid
+
+
+def get_governance_trend_snapshot(conn, snapshot_id):
+    return conn.execute(
+        "SELECT * FROM governance_trend_snapshots WHERE id=?",
+        (snapshot_id,)).fetchone()
+
+
+def list_governance_trend_snapshots(conn, limit=20):
+    return conn.execute(
+        "SELECT * FROM governance_trend_snapshots ORDER BY id DESC LIMIT ?",
+        (limit,)).fetchall()
+
+
+def save_governance_trend_markdown_report(conn, snapshot_id, report_path,
+                                          report_format, content_hash,
+                                          bytes_written) -> int:
+    cur = conn.execute(
+        "INSERT INTO governance_trend_markdown_reports (snapshot_id, report_path, "
+        "report_format, content_hash, bytes_written) VALUES (?,?,?,?,?)",
+        (snapshot_id, report_path, report_format, content_hash, bytes_written))
+    conn.commit()
+    return cur.lastrowid
+
+
+def get_governance_trend_markdown_report(conn, snapshot_id):
+    return conn.execute(
+        "SELECT * FROM governance_trend_markdown_reports WHERE snapshot_id=? "
+        "ORDER BY id DESC LIMIT 1", (snapshot_id,)).fetchone()
+
+
+# --- 8.6 Governance action planner -------------------------------------- #
+def save_governance_action_plan(conn, generated_at, source_evaluation_id,
+                                total_items, suggested_commands_json,
+                                safety_notes_json, status, summary) -> int:
+    now = _gov_now()
+    cur = conn.execute(
+        "INSERT INTO governance_action_plans (generated_at, source_evaluation_id, "
+        "total_items, suggested_commands_json, safety_notes_json, status, summary, "
+        "updated_at) VALUES (?,?,?,?,?,?,?,?)",
+        (generated_at, source_evaluation_id, total_items, suggested_commands_json,
+         safety_notes_json, status, summary, now))
+    conn.commit()
+    return cur.lastrowid
+
+
+def get_governance_action_plan(conn, plan_id):
+    return conn.execute(
+        "SELECT * FROM governance_action_plans WHERE id=?", (plan_id,)).fetchone()
+
+
+def list_governance_action_plans(conn, limit=50):
+    return conn.execute(
+        "SELECT * FROM governance_action_plans ORDER BY id DESC LIMIT ?",
+        (limit,)).fetchall()
+
+
+def save_governance_action_plan_item(conn, plan_id, policy_key, rule_key,
+                                     subject, description,
+                                     suggested_commands_json) -> int:
+    cur = conn.execute(
+        "INSERT INTO governance_action_plan_items (plan_id, policy_key, rule_key, "
+        "subject, description, suggested_commands_json) VALUES (?,?,?,?,?,?)",
+        (plan_id, policy_key, rule_key, subject, description,
+         suggested_commands_json))
+    conn.commit()
+    return cur.lastrowid
+
+
+def list_governance_action_plan_items(conn, plan_id):
+    return conn.execute(
+        "SELECT * FROM governance_action_plan_items WHERE plan_id=? ORDER BY id",
+        (plan_id,)).fetchall()
+
+
+def save_governance_action_plan_event(conn, plan_id, event_type, detail=None) -> int:
+    cur = conn.execute(
+        "INSERT INTO governance_action_plan_events (plan_id, event_type, detail) "
+        "VALUES (?,?,?)", (plan_id, event_type, detail))
+    conn.commit()
+    return cur.lastrowid
+
+
+# --- 8.7 Governance evidence export ------------------------------------- #
+def save_governance_evidence_export(conn, generated_at, report_path,
+                                    report_format, content_hash, bytes_written,
+                                    summary_json) -> int:
+    cur = conn.execute(
+        "INSERT INTO governance_evidence_exports (generated_at, report_path, "
+        "report_format, content_hash, bytes_written, summary_json) "
+        "VALUES (?,?,?,?,?,?)",
+        (generated_at, report_path, report_format, content_hash, bytes_written,
+         summary_json))
+    conn.commit()
+    return cur.lastrowid
+
+
+def get_governance_evidence_export(conn, export_id):
+    return conn.execute(
+        "SELECT * FROM governance_evidence_exports WHERE id=?",
+        (export_id,)).fetchone()
+
+
+def list_governance_evidence_exports(conn, limit=50):
+    return conn.execute(
+        "SELECT * FROM governance_evidence_exports ORDER BY id DESC LIMIT ?",
+        (limit,)).fetchall()
+
+
+# --- 8.8 Multi-project governance audit --------------------------------- #
+def save_multi_project_governance_audit(conn, generated_at, overall_status,
+                                        total_checks, passed_checks,
+                                        warning_checks, failed_checks,
+                                        blocked_checks, sections_json,
+                                        recommendations_json, safety_notes_json,
+                                        next_steps_json) -> int:
+    cur = conn.execute(
+        "INSERT INTO multi_project_governance_audits (generated_at, overall_status, "
+        "total_checks, passed_checks, warning_checks, failed_checks, "
+        "blocked_checks, sections_json, recommendations_json, safety_notes_json, "
+        "next_steps_json) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+        (generated_at, overall_status, total_checks, passed_checks, warning_checks,
+         failed_checks, blocked_checks, sections_json, recommendations_json,
+         safety_notes_json, next_steps_json))
+    conn.commit()
+    return cur.lastrowid
+
+
+def get_multi_project_governance_audit(conn, audit_id):
+    return conn.execute(
+        "SELECT * FROM multi_project_governance_audits WHERE id=?",
+        (audit_id,)).fetchone()
+
+
+def list_multi_project_governance_audits(conn, limit=20):
+    return conn.execute(
+        "SELECT * FROM multi_project_governance_audits ORDER BY id DESC LIMIT ?",
+        (limit,)).fetchall()
+
+
+def save_multi_project_governance_audit_markdown_report(
+        conn, audit_id, report_path, report_format, content_hash,
+        bytes_written) -> int:
+    cur = conn.execute(
+        "INSERT INTO multi_project_governance_audit_markdown_reports (audit_id, "
+        "report_path, report_format, content_hash, bytes_written) "
+        "VALUES (?,?,?,?,?)",
+        (audit_id, report_path, report_format, content_hash, bytes_written))
+    conn.commit()
+    return cur.lastrowid
+
+
+def get_multi_project_governance_audit_markdown_report(conn, audit_id):
+    return conn.execute(
+        "SELECT * FROM multi_project_governance_audit_markdown_reports "
+        "WHERE audit_id=? ORDER BY id DESC LIMIT 1", (audit_id,)).fetchone()
+
+
+# --- 8.9 Final Stage 8 audit -------------------------------------------- #
+def save_multi_project_stage8_audit(conn, generated_at, overall_status,
+                                    total_checks, passed_checks, warning_checks,
+                                    failed_checks, blocked_checks, sections_json,
+                                    recommendations_json, stage9_readiness_json,
+                                    safety_notes_json, next_steps_json) -> int:
+    cur = conn.execute(
+        "INSERT INTO multi_project_stage8_audits (generated_at, overall_status, "
+        "total_checks, passed_checks, warning_checks, failed_checks, "
+        "blocked_checks, sections_json, recommendations_json, "
+        "stage9_readiness_json, safety_notes_json, next_steps_json) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+        (generated_at, overall_status, total_checks, passed_checks, warning_checks,
+         failed_checks, blocked_checks, sections_json, recommendations_json,
+         stage9_readiness_json, safety_notes_json, next_steps_json))
+    conn.commit()
+    return cur.lastrowid
+
+
+def get_multi_project_stage8_audit(conn, audit_id):
+    return conn.execute(
+        "SELECT * FROM multi_project_stage8_audits WHERE id=?",
+        (audit_id,)).fetchone()
+
+
+def list_multi_project_stage8_audits(conn, limit=20):
+    return conn.execute(
+        "SELECT * FROM multi_project_stage8_audits ORDER BY id DESC LIMIT ?",
+        (limit,)).fetchall()
+
+
+def save_multi_project_stage8_audit_markdown_report(
+        conn, stage8_audit_id, report_path, report_format, content_hash,
+        bytes_written) -> int:
+    cur = conn.execute(
+        "INSERT INTO multi_project_stage8_audit_markdown_reports (stage8_audit_id, "
+        "report_path, report_format, content_hash, bytes_written) "
+        "VALUES (?,?,?,?,?)",
+        (stage8_audit_id, report_path, report_format, content_hash, bytes_written))
+    conn.commit()
+    return cur.lastrowid
+
+
+def get_multi_project_stage8_audit_markdown_report(conn, audit_id):
+    return conn.execute(
+        "SELECT * FROM multi_project_stage8_audit_markdown_reports "
+        "WHERE stage8_audit_id=? ORDER BY id DESC LIMIT 1", (audit_id,)).fetchone()

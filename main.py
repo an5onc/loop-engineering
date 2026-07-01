@@ -68,6 +68,16 @@ import cross_project_handoff
 import multi_project_scheduling
 import multi_project_audit
 import multi_project_stage7_audit
+import multi_project_governance_policies
+import multi_project_governance_evaluation
+import fleet_governance_reports
+import governance_review_queue
+import governance_waivers
+import governance_trends
+import governance_action_planner
+import governance_evidence_export
+import multi_project_governance_audit
+import multi_project_stage8_audit
 from loop_engine import LoopEngine
 
 USAGE = """Loop Engineering — orchestrates local Ollama models in a safe
@@ -222,6 +232,28 @@ MULTI-PROJECT OPERATIONS (Stage 7, metadata-only, no cross-project writes):
   --multi-project-audits / --multi-project-audit-show AUDIT_ID
   --multi-project-stage7-audit [--save-report]
   --multi-project-stage7-audits / --multi-project-stage7-audit-show AUDIT_ID|latest
+
+GOVERNANCE & FLEET REPORTING (Stage 8, metadata-only, fail-closed):
+  --governance-policies / --governance-policy POLICY_ID
+  --create-governance-policy KEY --rules a,b,c [--name N]  (or --default)
+  --set-governance-policy-status POLICY_ID active|inactive|archived
+  --evaluate-governance-policies [--save-report]
+  --governance-evaluations / --governance-evaluation EVALUATION_ID
+  --fleet-governance-report [--save-report]
+  --fleet-governance-reports / --fleet-governance-report-show REPORT_ID
+  --create-governance-review-items EVALUATION_ID
+  --governance-review-items [--status S] / --set-governance-review-status ITEM_ID STATUS
+  --create-governance-waiver FINDING_ID --owner O --reason "..." [--expiry-days N]
+  --governance-waivers / --set-governance-waiver-status WAIVER_ID active|revoked|expired
+  --governance-trends [--save-report]
+  --governance-trend-snapshots / --governance-trend-snapshot SNAPSHOT_ID
+  --plan-governance-actions [EVALUATION_ID]
+  --governance-action-plans / --governance-action-plan PLAN_ID
+  --export-governance-evidence / --governance-evidence-exports
+  --multi-project-governance-audit [--save-report]
+  --multi-project-governance-audits / --multi-project-governance-audit-show AUDIT_ID|latest
+  --multi-project-stage8-audit [--save-report]
+  --multi-project-stage8-audits / --multi-project-stage8-audit-show AUDIT_ID|latest
   --help, -h                  show this help
 
 Resume is preferred over --import-external-completion (kept for compatibility).
@@ -9182,6 +9214,759 @@ def _cmd_multi_project_stage7_audit_show(args) -> int:
     return 0
 
 
+# ===================================================================== #
+# Stage 8 — Multi-Project Governance and Fleet Reporting                 #
+# ===================================================================== #
+def _print_governance_policy(policy) -> None:
+    print(f"id         : {policy.id}")
+    print(f"policy_key : {policy.policy_key}")
+    print(f"name       : {policy.name}")
+    print(f"status     : {policy.status}")
+    print(f"description: {policy.description or '(none)'}")
+    print(f"rules      : {policy.rule_keys or '(none)'}")
+    if policy.severity_overrides:
+        print(f"overrides  : {policy.severity_overrides}")
+    print(f"created_at : {policy.created_at}")
+    print(f"updated_at : {policy.updated_at}")
+
+
+def _cmd_governance_policies() -> int:
+    conn = database.init_db()
+    engine = multi_project_governance_policies.GovernancePolicyRegistry(conn)
+    policies = engine.list_policies()
+    _rule(f"GOVERNANCE POLICIES ({len(policies)})")
+    if not policies:
+        print("(none) — create one with: python3 main.py --create-governance-policy --default")
+        return 0
+    for policy in policies:
+        print(f"#{policy.id}  {policy.policy_key} [{policy.status}] "
+              f"rules={len(policy.rule_keys)}  {policy.name}")
+    return 0
+
+
+def _cmd_governance_policy(args) -> int:
+    if not args:
+        print("ERROR: --governance-policy needs a POLICY_ID", file=sys.stderr)
+        return 1
+    try:
+        policy_id = int(args[0])
+    except (TypeError, ValueError):
+        print("ERROR: POLICY_ID must be an integer", file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    engine = multi_project_governance_policies.GovernancePolicyRegistry(conn)
+    policy = engine.get_policy(policy_id)
+    if policy is None:
+        print(f"ERROR: no governance policy {policy_id}", file=sys.stderr)
+        return 1
+    _rule(f"GOVERNANCE POLICY #{policy.id}")
+    _print_governance_policy(policy)
+    _rule("AVAILABLE RULES (reference)")
+    for key, r in multi_project_governance_policies.RULE_REGISTRY.items():
+        mark = "*" if key in policy.rule_keys else " "
+        print(f"[{mark}] {key} ({r.default_severity}/{r.scope}): {r.description}")
+    return 0
+
+
+def _cmd_create_governance_policy(args) -> int:
+    conn = database.init_db()
+    engine = multi_project_governance_policies.GovernancePolicyRegistry(conn)
+    if "--default" in args:
+        policy = engine.ensure_default_policy()
+        _rule(f"GOVERNANCE POLICY #{policy.id} (default baseline)")
+        _print_governance_policy(policy)
+        return 0
+    if not args or args[0].startswith("--"):
+        print("ERROR: --create-governance-policy needs a POLICY_KEY --rules a,b,c "
+              "(or --default)", file=sys.stderr)
+        return 1
+    policy_key = args[0]
+    rules_val = _flag_val(args, "--rules")
+    if not rules_val:
+        print("ERROR: --create-governance-policy requires --rules a,b,c",
+              file=sys.stderr)
+        return 1
+    rule_keys = [r.strip() for r in rules_val.split(",") if r.strip()]
+    name = _flag_val(args, "--name")
+    description = _flag_val(args, "--description") or ""
+    try:
+        policy = engine.create_policy(policy_key, rule_keys, name=name,
+                                      description=description)
+    except ValueError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    _rule(f"GOVERNANCE POLICY #{policy.id}")
+    _print_governance_policy(policy)
+    return 0
+
+
+def _cmd_set_governance_policy_status(args) -> int:
+    if len(args) < 2:
+        print("ERROR: --set-governance-policy-status needs POLICY_ID and STATUS",
+              file=sys.stderr)
+        return 1
+    try:
+        policy_id = int(args[0])
+    except (TypeError, ValueError):
+        print("ERROR: POLICY_ID must be an integer", file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    engine = multi_project_governance_policies.GovernancePolicyRegistry(conn)
+    try:
+        policy = engine.set_status(policy_id, args[1])
+    except ValueError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    print(f"governance policy #{policy.id} status -> {policy.status}")
+    return 0
+
+
+def _print_governance_evaluation(report) -> None:
+    print(f"evaluation id : {report.id}")
+    print(f"generated_at  : {report.generated_at}")
+    print(f"overall_status: {report.overall_status}")
+    print(f"policies      : {report.policy_keys or '(none active)'}")
+    print(f"findings      : {report.total_findings} "
+          f"(pass={report.passed_findings} warn={report.warning_findings} "
+          f"fail={report.failed_findings} waived={report.waived_findings})")
+    _rule("FINDINGS")
+    if not report.findings:
+        print("(none — no active policies or no active projects)")
+    for f in report.findings:
+        fid = f.get("id")
+        prefix = f"#{fid} " if fid else ""
+        print(f"- {prefix}[{f['status']}] {f['policy_key']}/{f['rule_key']} "
+              f":: {f['subject']} ({f['severity']}) — {f['evidence']}")
+
+
+def _cmd_evaluate_governance_policies(args) -> int:
+    conn = database.init_db()
+    engine = multi_project_governance_evaluation.GovernanceEvaluationEngine(conn)
+    report = engine.evaluate()
+    markdown_path = None
+    if "--save-report" in args:
+        markdown_path = engine.save_markdown_report(report.id).report_path
+    _rule("GOVERNANCE POLICY EVALUATION")
+    _print_governance_evaluation(report)
+    if markdown_path:
+        print(f"\nmarkdown: {markdown_path}")
+    return 0
+
+
+def _cmd_governance_evaluations(args) -> int:
+    conn = database.init_db()
+    rows = database.list_governance_policy_evaluations(conn)
+    _rule(f"GOVERNANCE POLICY EVALUATIONS ({len(rows)})")
+    if not rows:
+        print("(none) — run: python3 main.py --evaluate-governance-policies")
+        return 0
+    for row in rows:
+        print(f"#{row['id']}  {row['generated_at']}  status={row['overall_status']} "
+              f"findings={row['total_findings']} fail={row['failed_findings']} "
+              f"waived={row['waived_findings']}")
+    return 0
+
+
+def _cmd_governance_evaluation(args) -> int:
+    if not args:
+        print("ERROR: --governance-evaluation needs an EVALUATION_ID", file=sys.stderr)
+        return 1
+    try:
+        evaluation_id = int(args[0])
+    except (TypeError, ValueError):
+        print("ERROR: EVALUATION_ID must be an integer", file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    engine = multi_project_governance_evaluation.GovernanceEvaluationEngine(conn)
+    report = engine.get_evaluation(evaluation_id)
+    if report is None:
+        print(f"ERROR: no governance evaluation {evaluation_id}", file=sys.stderr)
+        return 1
+    _rule(f"GOVERNANCE POLICY EVALUATION #{report.id}")
+    _print_governance_evaluation(report)
+    return 0
+
+
+def _print_fleet_governance(report, report_id=None, markdown_path=None) -> None:
+    s = report.summary
+    _rule("FLEET GOVERNANCE REPORT")
+    if report_id is not None:
+        print(f"report id         : {report_id}")
+    if markdown_path:
+        print(f"markdown report   : {markdown_path}")
+    print(f"generated_at      : {s.get('generated_at', report.generated_at)}")
+    print(f"total projects    : {s.get('total_projects', 0)} "
+          f"(active {s.get('active_projects', 0)})")
+    print(f"stale projects    : {s.get('stale_projects', 0)}")
+    print(f"blocked projects  : {s.get('blocked_projects', 0)}")
+    print(f"missing validation: {s.get('missing_validations', 0)}")
+    print(f"active policies   : {s.get('active_policies', 0)}")
+    print(f"active waivers     : {s.get('active_waivers', 0)}")
+    print(f"latest evaluation : {s.get('latest_evaluation_status')}")
+    print(f"open plans        : {s.get('open_plans', 0)}")
+    print(f"pending approvals : {s.get('pending_approvals', 0)}")
+    _rule("PROJECT HEALTH")
+    health = report.sections.get("project_health", [])
+    if not health:
+        print("(none registered)")
+    for p in health:
+        print(f"- {p.get('project_key')} [{p.get('status')}] "
+              f"root_exists={p.get('root_exists')} "
+              f"validation={p.get('latest_validation')}")
+
+
+def _cmd_fleet_governance_report(args) -> int:
+    conn = database.init_db()
+    reporter = fleet_governance_reports.FleetGovernanceReporter(conn)
+    report = reporter.build_report()
+    report_id = None
+    markdown_path = None
+    if "--save-report" in args:
+        report_id = reporter.save_report(report)
+        markdown_path = reporter.save_markdown_report(report_id).report_path
+    _print_fleet_governance(report, report_id=report_id, markdown_path=markdown_path)
+    return 0
+
+
+def _cmd_fleet_governance_reports(args) -> int:
+    conn = database.init_db()
+    rows = database.list_fleet_governance_reports(conn)
+    _rule(f"FLEET GOVERNANCE REPORTS ({len(rows)})")
+    if not rows:
+        print("(none) — run: python3 main.py --fleet-governance-report --save-report")
+        return 0
+    for row in rows:
+        md = database.get_fleet_governance_markdown_report(conn, row["id"])
+        print(f"#{row['id']}  {row['generated_at']}")
+        if md is not None:
+            print(f"    markdown: {md['report_path']}")
+    return 0
+
+
+def _cmd_fleet_governance_report_show(args) -> int:
+    if not args:
+        print("ERROR: --fleet-governance-report-show needs a REPORT_ID",
+              file=sys.stderr)
+        return 1
+    try:
+        report_id = int(args[0])
+    except (TypeError, ValueError):
+        print("ERROR: REPORT_ID must be an integer", file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    reporter = fleet_governance_reports.FleetGovernanceReporter(conn)
+    report = reporter.get_report(report_id)
+    if report is None:
+        print(f"ERROR: no fleet governance report {report_id}", file=sys.stderr)
+        return 1
+    md = database.get_fleet_governance_markdown_report(conn, report_id)
+    _print_fleet_governance(report, report_id=report_id,
+                            markdown_path=md["report_path"] if md else None)
+    return 0
+
+
+def _print_review_item(item) -> None:
+    print(f"#{item.id}  [{item.status}] {item.policy_key}/{item.rule_key} "
+          f":: {item.subject} ({item.severity})")
+    if item.notes:
+        print(f"    notes: {item.notes}")
+
+
+def _cmd_create_governance_review_items(args) -> int:
+    if not args:
+        print("ERROR: --create-governance-review-items needs an EVALUATION_ID",
+              file=sys.stderr)
+        return 1
+    try:
+        evaluation_id = int(args[0])
+    except (TypeError, ValueError):
+        print("ERROR: EVALUATION_ID must be an integer", file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    engine = governance_review_queue.GovernanceReviewQueue(conn)
+    try:
+        items = engine.create_items(evaluation_id)
+    except ValueError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    _rule(f"GOVERNANCE REVIEW ITEMS CREATED ({len(items)})")
+    if not items:
+        print("(no warn/fail findings in that evaluation)")
+    for item in items:
+        _print_review_item(item)
+    return 0
+
+
+def _cmd_governance_review_items(args) -> int:
+    conn = database.init_db()
+    status = _flag_val(args, "--status") if "--status" in args else None
+    engine = governance_review_queue.GovernanceReviewQueue(conn)
+    try:
+        items = engine.list_items(status=status)
+    except ValueError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    _rule(f"GOVERNANCE REVIEW ITEMS ({len(items)})")
+    if not items:
+        print("(none)")
+        return 0
+    for item in items:
+        _print_review_item(item)
+    return 0
+
+
+def _cmd_set_governance_review_status(args) -> int:
+    if len(args) < 2:
+        print("ERROR: --set-governance-review-status needs ITEM_ID and STATUS",
+              file=sys.stderr)
+        return 1
+    try:
+        item_id = int(args[0])
+    except (TypeError, ValueError):
+        print("ERROR: ITEM_ID must be an integer", file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    engine = governance_review_queue.GovernanceReviewQueue(conn)
+    try:
+        item = engine.set_status(item_id, args[1])
+    except ValueError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    print(f"governance review item #{item.id} status -> {item.status}")
+    return 0
+
+
+def _print_governance_waiver(waiver) -> None:
+    print(f"id            : {waiver.id}")
+    print(f"signature     : {waiver.signature}")
+    print(f"policy/rule   : {waiver.policy_key}/{waiver.rule_key}")
+    print(f"subject       : {waiver.subject}")
+    print(f"owner         : {waiver.owner or '(none)'}")
+    print(f"reason        : {waiver.reason or '(none)'}")
+    print(f"expiry        : {waiver.expiry or '(none)'}")
+    print(f"status        : {waiver.status}")
+    print(f"source finding: {waiver.source_finding_id}")
+    print(f"active        : {governance_waivers.is_active(waiver)}")
+
+
+def _cmd_create_governance_waiver(args) -> int:
+    if not args or args[0].startswith("--"):
+        print("ERROR: --create-governance-waiver needs a FINDING_ID --owner O "
+              "--reason \"...\" [--expiry-days N]", file=sys.stderr)
+        return 1
+    try:
+        finding_id = int(args[0])
+    except (TypeError, ValueError):
+        print("ERROR: FINDING_ID must be an integer", file=sys.stderr)
+        return 1
+    owner = _flag_val(args, "--owner")
+    reason = _flag_val(args, "--reason") or ""
+    expiry_days = _flag_val(args, "--expiry-days")
+    if not owner:
+        print("ERROR: --create-governance-waiver requires --owner", file=sys.stderr)
+        return 1
+    if expiry_days is not None:
+        try:
+            expiry_days = int(expiry_days)
+        except (TypeError, ValueError):
+            print("ERROR: --expiry-days must be an integer", file=sys.stderr)
+            return 1
+    conn = database.init_db()
+    gate = governance_waivers.GovernanceWaiverRegistry(conn)
+    try:
+        waiver = gate.create_from_finding(finding_id, reason, owner,
+                                          expiry_days=expiry_days)
+    except ValueError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    _rule("GOVERNANCE WAIVER CREATED")
+    _print_governance_waiver(waiver)
+    return 0
+
+
+def _cmd_governance_waivers() -> int:
+    conn = database.init_db()
+    rows = database.list_governance_waivers(conn)
+    _rule(f"GOVERNANCE WAIVERS ({len(rows)})")
+    if not rows:
+        print("(none)")
+        return 0
+    for row in rows:
+        waiver = governance_waivers.waiver_from_row(row)
+        print(f"#{waiver.id}  [{waiver.status}] {waiver.signature}  "
+              f"owner={waiver.owner or '(none)'} expiry={waiver.expiry or '(none)'} "
+              f"active={governance_waivers.is_active(waiver)}")
+    return 0
+
+
+def _cmd_set_governance_waiver_status(args) -> int:
+    if len(args) < 2:
+        print("ERROR: --set-governance-waiver-status needs WAIVER_ID and STATUS",
+              file=sys.stderr)
+        return 1
+    try:
+        waiver_id = int(args[0])
+    except (TypeError, ValueError):
+        print("ERROR: WAIVER_ID must be an integer", file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    gate = governance_waivers.GovernanceWaiverRegistry(conn)
+    try:
+        waiver = gate.set_status(waiver_id, args[1])
+    except ValueError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    print(f"governance waiver #{waiver.id} status -> {waiver.status}")
+    return 0
+
+
+def _print_trend_snapshot(snapshot, snapshot_id=None, markdown_path=None) -> None:
+    s = snapshot.summary
+    _rule("GOVERNANCE TRENDS")
+    if snapshot_id is not None:
+        print(f"snapshot id       : {snapshot_id}")
+    if markdown_path:
+        print(f"markdown report   : {markdown_path}")
+    print(f"generated_at      : {s.get('generated_at', snapshot.generated_at)}")
+    print(f"evaluations       : {s.get('evaluations', 0)}")
+    print(f"fleet reports     : {s.get('fleet_reports', 0)}")
+    print(f"latest status     : {s.get('latest_overall_status')}")
+    print(f"latest failed     : {s.get('latest_failed', 0)}")
+    print(f"direction         : {s.get('direction')}")
+    _rule("POINTS")
+    if not snapshot.points:
+        print("(no evaluations yet)")
+    for pt in snapshot.points:
+        print(f"- eval #{pt.get('evaluation_id')} {pt.get('generated_at')} "
+              f"{pt.get('overall_status')} fail={pt.get('failed')} "
+              f"waived={pt.get('waived')}")
+
+
+def _cmd_governance_trends(args) -> int:
+    conn = database.init_db()
+    tracker = governance_trends.GovernanceTrendTracker(conn)
+    snapshot = tracker.build_snapshot()
+    snapshot_id = None
+    markdown_path = None
+    if "--save-report" in args:
+        snapshot_id = tracker.save_snapshot(snapshot)
+        markdown_path = tracker.save_markdown_report(snapshot_id).report_path
+    _print_trend_snapshot(snapshot, snapshot_id=snapshot_id,
+                          markdown_path=markdown_path)
+    return 0
+
+
+def _cmd_governance_trend_snapshots(args) -> int:
+    conn = database.init_db()
+    rows = database.list_governance_trend_snapshots(conn)
+    _rule(f"GOVERNANCE TREND SNAPSHOTS ({len(rows)})")
+    if not rows:
+        print("(none) — run: python3 main.py --governance-trends --save-report")
+        return 0
+    for row in rows:
+        md = database.get_governance_trend_markdown_report(conn, row["id"])
+        print(f"#{row['id']}  {row['generated_at']}")
+        if md is not None:
+            print(f"    markdown: {md['report_path']}")
+    return 0
+
+
+def _cmd_governance_trend_snapshot(args) -> int:
+    if not args:
+        print("ERROR: --governance-trend-snapshot needs a SNAPSHOT_ID",
+              file=sys.stderr)
+        return 1
+    try:
+        snapshot_id = int(args[0])
+    except (TypeError, ValueError):
+        print("ERROR: SNAPSHOT_ID must be an integer", file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    tracker = governance_trends.GovernanceTrendTracker(conn)
+    snapshot = tracker.get_snapshot(snapshot_id)
+    if snapshot is None:
+        print(f"ERROR: no governance trend snapshot {snapshot_id}", file=sys.stderr)
+        return 1
+    md = database.get_governance_trend_markdown_report(conn, snapshot_id)
+    _print_trend_snapshot(snapshot, snapshot_id=snapshot_id,
+                          markdown_path=md["report_path"] if md else None)
+    return 0
+
+
+def _print_action_plan(plan) -> None:
+    print(f"plan id           : {plan.id}")
+    print(f"generated_at      : {plan.generated_at}")
+    print(f"source evaluation : {plan.source_evaluation_id}")
+    print(f"status            : {plan.status}")
+    print(f"total items       : {plan.total_items}")
+    _rule("SUGGESTED MANUAL COMMANDS (text only — not executed)")
+    _print_lines(plan.suggested_commands)
+    _rule("ACTION ITEMS")
+    if not plan.items:
+        print("(none — evaluation had no unresolved findings)")
+    for item in plan.items:
+        print(f"- [{item.policy_key}/{item.rule_key}] {item.description}")
+        for cmd in item.suggested_commands:
+            print(f"    {cmd}")
+    _rule("SAFETY NOTES")
+    _print_lines(plan.safety_notes)
+
+
+def _cmd_plan_governance_actions(args) -> int:
+    conn = database.init_db()
+    planner = governance_action_planner.GovernanceActionPlanner(conn)
+    evaluation_id = None
+    if args and not args[0].startswith("--"):
+        try:
+            evaluation_id = int(args[0])
+        except (TypeError, ValueError):
+            print("ERROR: EVALUATION_ID must be an integer", file=sys.stderr)
+            return 1
+    try:
+        plan = planner.plan(evaluation_id)
+    except ValueError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    _rule("GOVERNANCE ACTION PLAN")
+    _print_action_plan(plan)
+    return 0
+
+
+def _cmd_governance_action_plans(args) -> int:
+    conn = database.init_db()
+    rows = database.list_governance_action_plans(conn)
+    _rule(f"GOVERNANCE ACTION PLANS ({len(rows)})")
+    if not rows:
+        print("(none) — run: python3 main.py --plan-governance-actions")
+        return 0
+    for row in rows:
+        print(f"#{row['id']}  {row['generated_at']}  "
+              f"eval={row['source_evaluation_id']} items={row['total_items']} "
+              f"status={row['status']}")
+    return 0
+
+
+def _cmd_governance_action_plan(args) -> int:
+    if not args:
+        print("ERROR: --governance-action-plan needs a PLAN_ID", file=sys.stderr)
+        return 1
+    try:
+        plan_id = int(args[0])
+    except (TypeError, ValueError):
+        print("ERROR: PLAN_ID must be an integer", file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    planner = governance_action_planner.GovernanceActionPlanner(conn)
+    plan = planner.get_plan(plan_id)
+    if plan is None:
+        print(f"ERROR: no governance action plan {plan_id}", file=sys.stderr)
+        return 1
+    _rule(f"GOVERNANCE ACTION PLAN #{plan.id}")
+    _print_action_plan(plan)
+    return 0
+
+
+def _cmd_export_governance_evidence(args) -> int:
+    conn = database.init_db()
+    exporter = governance_evidence_export.GovernanceEvidenceExporter(conn)
+    export = exporter.export()
+    _rule("GOVERNANCE EVIDENCE EXPORT")
+    print(f"export id    : {export.id}")
+    print(f"generated_at : {export.generated_at}")
+    print(f"packet path  : {export.report_path}")
+    print(f"bytes        : {export.bytes_written}")
+    print(f"policies     : {export.summary.get('policies', 0)} "
+          f"(active {export.summary.get('active_policies', 0)})")
+    print(f"latest eval  : {export.summary.get('latest_evaluation_status')}")
+    print(f"waivers      : {export.summary.get('waivers', 0)}")
+    print(f"review items : {export.summary.get('review_items', 0)}")
+    print("note         : packet excludes protected contents, secrets, DB snapshots.")
+    return 0
+
+
+def _cmd_governance_evidence_exports(args) -> int:
+    conn = database.init_db()
+    rows = database.list_governance_evidence_exports(conn)
+    _rule(f"GOVERNANCE EVIDENCE EXPORTS ({len(rows)})")
+    if not rows:
+        print("(none) — run: python3 main.py --export-governance-evidence")
+        return 0
+    for row in rows:
+        print(f"#{row['id']}  {row['generated_at']}  {row['report_path']}")
+    return 0
+
+
+def _latest_governance_audit_id(conn):
+    rows = database.list_multi_project_governance_audits(conn, limit=1)
+    return rows[0]["id"] if rows else None
+
+
+def _print_governance_audit(report, audit_id=None, markdown_path=None) -> None:
+    _rule("MULTI-PROJECT GOVERNANCE AUDIT")
+    if audit_id is not None:
+        print(f"audit id      : {audit_id}")
+    if markdown_path:
+        print(f"markdown      : {markdown_path}")
+    print(f"generated_at  : {report.generated_at}")
+    print(f"overall_status: {report.overall_status}")
+    print(f"total checks  : {report.total_checks} "
+          f"(pass={report.passed_checks} warn={report.warning_checks} "
+          f"fail={report.failed_checks} blocked={report.blocked_checks})")
+    _rule("SECTIONS")
+    for section in report.sections:
+        print(f"- {section.name}: {section.status}  ({section.summary})")
+        for check in section.checks:
+            print(f"    {check.status}: {check.name} — {check.message}")
+    _rule("SAFETY NOTES")
+    _print_lines(report.safety_notes)
+
+
+def _cmd_multi_project_governance_audit(args) -> int:
+    conn = database.init_db()
+    engine = multi_project_governance_audit.GovernanceAuditEngine(conn)
+    try:
+        report = engine.build_report()
+        audit_id = engine.save_audit(report)
+        markdown_path = None
+        if "--save-report" in args:
+            markdown_path = engine.save_markdown_report(audit_id, report).report_path
+    except Exception as exc:
+        print(f"ERROR: multi-project governance audit failed: {exc}",
+              file=sys.stderr)
+        return 1
+    _print_governance_audit(report, audit_id=audit_id, markdown_path=markdown_path)
+    return 0
+
+
+def _cmd_multi_project_governance_audits(args) -> int:
+    conn = database.init_db()
+    rows = database.list_multi_project_governance_audits(conn)
+    _rule(f"MULTI-PROJECT GOVERNANCE AUDITS ({len(rows)})")
+    if not rows:
+        print("(none)")
+        return 0
+    for row in rows:
+        print(f"#{row['id']}  {row['generated_at']}  status={row['overall_status']} "
+              f"checks={row['total_checks']} fail={row['failed_checks']} "
+              f"blocked={row['blocked_checks']}")
+    return 0
+
+
+def _cmd_multi_project_governance_audit_show(args) -> int:
+    if not args:
+        print("ERROR: --multi-project-governance-audit-show needs an AUDIT_ID",
+              file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    try:
+        audit_id = _parse_id_or_latest(
+            conn, args[0], _latest_governance_audit_id,
+            "multi-project governance audit")
+    except (TypeError, ValueError):
+        print("ERROR: AUDIT_ID must be an integer or 'latest'", file=sys.stderr)
+        return 1
+    row = database.get_multi_project_governance_audit(conn, audit_id)
+    if row is None:
+        print(f"ERROR: no multi-project governance audit {args[0]}", file=sys.stderr)
+        return 1
+    report = multi_project_governance_audit.report_from_row(row)
+    md = database.get_multi_project_governance_audit_markdown_report(conn, audit_id)
+    _print_governance_audit(
+        report, audit_id=audit_id,
+        markdown_path=md["report_path"] if md else None)
+    return 0
+
+
+def _latest_stage8_audit_id(conn):
+    rows = database.list_multi_project_stage8_audits(conn, limit=1)
+    return rows[0]["id"] if rows else None
+
+
+def _print_stage8_audit(report, audit_id=None, markdown_path=None) -> None:
+    _rule("STAGE 8 FINAL AUDIT — GOVERNANCE & FLEET REPORTING")
+    if audit_id is not None:
+        print(f"audit id      : {audit_id}")
+    if markdown_path:
+        print(f"markdown      : {markdown_path}")
+    print(f"generated_at  : {report.generated_at}")
+    print(f"overall_status: {report.overall_status}")
+    print(f"total checks  : {report.total_checks} "
+          f"(pass={report.passed_checks} warn={report.warning_checks} "
+          f"fail={report.failed_checks} blocked={report.blocked_checks})")
+    print(f"stage 9 ready : {report.stage9_readiness.get('ready')}")
+    _rule("SECTIONS")
+    for section in report.sections:
+        print(f"- {section.name}: {section.status}  ({section.summary})")
+        for check in section.checks:
+            print(f"    {check.status}: {check.name}")
+    _rule("STAGE 9 READINESS")
+    readiness = report.stage9_readiness
+    print(f"ready             : {readiness.get('ready')}")
+    print(f"recommended theme : {readiness.get('recommended_stage_9_theme')}")
+    print("blockers:")
+    _print_lines(readiness.get("blockers", []) or ["(none)"])
+    print("warnings:")
+    _print_lines(readiness.get("warnings", []) or ["(none)"])
+    _rule("SAFETY NOTES")
+    _print_lines(report.safety_notes)
+    _rule("NEXT STEPS")
+    _print_lines(report.next_steps)
+
+
+def _cmd_multi_project_stage8_audit(args) -> int:
+    conn = database.init_db()
+    engine = multi_project_stage8_audit.MultiProjectStage8AuditEngine(conn)
+    try:
+        report = engine.build_report()
+        audit_id = engine.save_audit(report)
+        markdown_path = None
+        if "--save-report" in args:
+            markdown_path = engine.save_markdown_report(audit_id, report).report_path
+    except Exception as exc:
+        print(f"ERROR: Stage 8 final audit failed: {exc}", file=sys.stderr)
+        return 1
+    _print_stage8_audit(report, audit_id=audit_id, markdown_path=markdown_path)
+    return 0
+
+
+def _cmd_multi_project_stage8_audits(args) -> int:
+    conn = database.init_db()
+    rows = database.list_multi_project_stage8_audits(conn)
+    _rule(f"STAGE 8 FINAL AUDITS ({len(rows)})")
+    if not rows:
+        print("(none)")
+        return 0
+    for row in rows:
+        print(f"#{row['id']}  {row['generated_at']}  status={row['overall_status']} "
+              f"checks={row['total_checks']} fail={row['failed_checks']} "
+              f"blocked={row['blocked_checks']}")
+    return 0
+
+
+def _cmd_multi_project_stage8_audit_show(args) -> int:
+    if not args:
+        print("ERROR: --multi-project-stage8-audit-show needs an AUDIT_ID|latest",
+              file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    try:
+        audit_id = _parse_id_or_latest(
+            conn, args[0], _latest_stage8_audit_id, "Stage 8 final audit")
+    except (TypeError, ValueError):
+        print("ERROR: AUDIT_ID must be an integer or 'latest'", file=sys.stderr)
+        return 1
+    row = database.get_multi_project_stage8_audit(conn, audit_id)
+    if row is None:
+        print(f"ERROR: no Stage 8 final audit {args[0]}", file=sys.stderr)
+        return 1
+    report = multi_project_stage8_audit.report_from_row(row)
+    md = database.get_multi_project_stage8_audit_markdown_report(conn, audit_id)
+    _print_stage8_audit(
+        report, audit_id=audit_id,
+        markdown_path=md["report_path"] if md else None)
+    return 0
+
+
 def main() -> int:
     args = sys.argv[1:]
     if args and args[0] in ("--help", "-h", "help"):
@@ -9536,6 +10321,67 @@ def main() -> int:
         return _cmd_multi_project_stage7_audits(args[1:])
     if args and args[0] == "--multi-project-stage7-audit-show":
         return _cmd_multi_project_stage7_audit_show(args[1:])
+    # --- Stage 8: Governance & Fleet Reporting -----------------------------
+    if args and args[0] == "--governance-policies":
+        return _cmd_governance_policies()
+    if args and args[0] == "--governance-policy":
+        return _cmd_governance_policy(args[1:])
+    if args and args[0] == "--create-governance-policy":
+        return _cmd_create_governance_policy(args[1:])
+    if args and args[0] == "--set-governance-policy-status":
+        return _cmd_set_governance_policy_status(args[1:])
+    if args and args[0] == "--evaluate-governance-policies":
+        return _cmd_evaluate_governance_policies(args[1:])
+    if args and args[0] == "--governance-evaluations":
+        return _cmd_governance_evaluations(args[1:])
+    if args and args[0] == "--governance-evaluation":
+        return _cmd_governance_evaluation(args[1:])
+    if args and args[0] == "--fleet-governance-report":
+        return _cmd_fleet_governance_report(args[1:])
+    if args and args[0] == "--fleet-governance-reports":
+        return _cmd_fleet_governance_reports(args[1:])
+    if args and args[0] == "--fleet-governance-report-show":
+        return _cmd_fleet_governance_report_show(args[1:])
+    if args and args[0] == "--create-governance-review-items":
+        return _cmd_create_governance_review_items(args[1:])
+    if args and args[0] == "--governance-review-items":
+        return _cmd_governance_review_items(args[1:])
+    if args and args[0] == "--set-governance-review-status":
+        return _cmd_set_governance_review_status(args[1:])
+    if args and args[0] == "--create-governance-waiver":
+        return _cmd_create_governance_waiver(args[1:])
+    if args and args[0] == "--governance-waivers":
+        return _cmd_governance_waivers()
+    if args and args[0] == "--set-governance-waiver-status":
+        return _cmd_set_governance_waiver_status(args[1:])
+    if args and args[0] == "--governance-trends":
+        return _cmd_governance_trends(args[1:])
+    if args and args[0] == "--governance-trend-snapshots":
+        return _cmd_governance_trend_snapshots(args[1:])
+    if args and args[0] == "--governance-trend-snapshot":
+        return _cmd_governance_trend_snapshot(args[1:])
+    if args and args[0] == "--plan-governance-actions":
+        return _cmd_plan_governance_actions(args[1:])
+    if args and args[0] == "--governance-action-plans":
+        return _cmd_governance_action_plans(args[1:])
+    if args and args[0] == "--governance-action-plan":
+        return _cmd_governance_action_plan(args[1:])
+    if args and args[0] == "--export-governance-evidence":
+        return _cmd_export_governance_evidence(args[1:])
+    if args and args[0] == "--governance-evidence-exports":
+        return _cmd_governance_evidence_exports(args[1:])
+    if args and args[0] == "--multi-project-governance-audit":
+        return _cmd_multi_project_governance_audit(args[1:])
+    if args and args[0] == "--multi-project-governance-audits":
+        return _cmd_multi_project_governance_audits(args[1:])
+    if args and args[0] == "--multi-project-governance-audit-show":
+        return _cmd_multi_project_governance_audit_show(args[1:])
+    if args and args[0] == "--multi-project-stage8-audit":
+        return _cmd_multi_project_stage8_audit(args[1:])
+    if args and args[0] == "--multi-project-stage8-audits":
+        return _cmd_multi_project_stage8_audits(args[1:])
+    if args and args[0] == "--multi-project-stage8-audit-show":
+        return _cmd_multi_project_stage8_audit_show(args[1:])
 
     (commit, commit_message, loop_name, overrides, min_conf, workspace_name,
      require_approval, auto_approve_low_risk, approval_mode,

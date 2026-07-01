@@ -27,6 +27,12 @@ REQUIRED_IGNORES = [
     "cross_project_handoff_packets/",
     "multi_project_audit_reports/",
     "multi_project_stage7_audit_reports/",
+    "governance_policy_evaluation_reports/",
+    "fleet_governance_reports/",
+    "governance_trend_reports/",
+    "governance_evidence_exports/",
+    "multi_project_governance_audit_reports/",
+    "multi_project_stage8_audit_reports/",
 ]
 
 CORE_VERIFICATION = [
@@ -110,6 +116,21 @@ def build_handoff(repo_root="."):
     a("  -> `--schedule-cross-project-plan PLAN_ID --approval APPROVAL_ID --window manual`")
     a("- Audit: `--multi-project-audit`, `--multi-project-stage7-audit [--save-report]`")
     a("- A handoff or schedule is created only when a valid approved approval exists.")
+    a("")
+    a("## Governance & Fleet Reporting (Stage 8)")
+    a("")
+    a("Stage 8 adds metadata-only governance on top of the registry: fleet policies,")
+    a("deterministic evaluation into findings, a review queue, finding-based waivers")
+    a("(with owner + expiry; expired waivers stop suppressing), trends, an action")
+    a("planner (advisory text only), evidence export, and Stage 8 audits.")
+    a("")
+    a("- Policies: `--create-governance-policy --default`, `--governance-policies`")
+    a("- Evaluate: `--evaluate-governance-policies [--save-report]` -> findings")
+    a("- Triage: `--create-governance-review-items EVALUATION_ID`, `--governance-review-items`")
+    a("- Waivers (fail-closed): `--create-governance-waiver FINDING_ID --owner O --reason \"...\" --expiry-days N`")
+    a("- Fleet / trends / evidence: `--fleet-governance-report`, `--governance-trends`, `--export-governance-evidence`")
+    a("- Audit: `--multi-project-governance-audit`, `--multi-project-stage8-audit [--save-report]`")
+    a("- No cross-project execution, no hidden command/model runs, no project-root writes.")
     a("")
     a("## Next Agent Checklist")
     a("")

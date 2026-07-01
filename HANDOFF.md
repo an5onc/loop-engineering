@@ -1,6 +1,6 @@
 # Loop Engineering Agent Handoff
 
-- Generated at: 2026-07-01T12:02:33
+- Generated at: 2026-07-01T12:59:20
 - Branch: `main`
 - Remote: `https://github.com/an5onc/loop-engineering.git`
 
@@ -50,6 +50,12 @@ These are intentionally local-only and ignored:
 - `cross_project_handoff_packets/`
 - `multi_project_audit_reports/`
 - `multi_project_stage7_audit_reports/`
+- `governance_policy_evaluation_reports/`
+- `fleet_governance_reports/`
+- `governance_trend_reports/`
+- `governance_evidence_exports/`
+- `multi_project_governance_audit_reports/`
+- `multi_project_stage8_audit_reports/`
 
 ## Multi-Project Operations (Stage 7)
 
@@ -68,6 +74,21 @@ explicit approved approval.
   -> `--schedule-cross-project-plan PLAN_ID --approval APPROVAL_ID --window manual`
 - Audit: `--multi-project-audit`, `--multi-project-stage7-audit [--save-report]`
 - A handoff or schedule is created only when a valid approved approval exists.
+
+## Governance & Fleet Reporting (Stage 8)
+
+Stage 8 adds metadata-only governance on top of the registry: fleet policies,
+deterministic evaluation into findings, a review queue, finding-based waivers
+(with owner + expiry; expired waivers stop suppressing), trends, an action
+planner (advisory text only), evidence export, and Stage 8 audits.
+
+- Policies: `--create-governance-policy --default`, `--governance-policies`
+- Evaluate: `--evaluate-governance-policies [--save-report]` -> findings
+- Triage: `--create-governance-review-items EVALUATION_ID`, `--governance-review-items`
+- Waivers (fail-closed): `--create-governance-waiver FINDING_ID --owner O --reason "..." --expiry-days N`
+- Fleet / trends / evidence: `--fleet-governance-report`, `--governance-trends`, `--export-governance-evidence`
+- Audit: `--multi-project-governance-audit`, `--multi-project-stage8-audit [--save-report]`
+- No cross-project execution, no hidden command/model runs, no project-root writes.
 
 ## Next Agent Checklist
 

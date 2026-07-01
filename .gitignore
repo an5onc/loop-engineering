@@ -33,3 +33,9 @@ multi_project_observatory_reports/
 cross_project_handoff_packets/
 multi_project_audit_reports/
 multi_project_stage7_audit_reports/
+governance_policy_evaluation_reports/
+fleet_governance_reports/
+governance_trend_reports/
+governance_evidence_exports/
+multi_project_governance_audit_reports/
+multi_project_stage8_audit_reports/

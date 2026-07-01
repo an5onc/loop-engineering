@@ -75,6 +75,33 @@ entire layer is metadata-only and fail-closed.
   `cross_project_handoff_packets/`, `multi_project_audit_reports/`,
   `multi_project_stage7_audit_reports/`.
 
+## Governance & Fleet Reporting (Stage 8)
+
+Stage 8 adds a governance layer on top of the Stage 7 registry. Metadata-only,
+fail-closed, and no cross-project execution.
+
+- Policies are named sets of deterministic rules from a fixed `RULE_REGISTRY`
+  (fleet rules: required validation, staleness, blocked handling, approval
+  freshness, handoff/schedule integrity, audit recency). No expression language.
+- Evaluation reads registry/validation/plan/approval/handoff/schedule/audit
+  metadata only — never project file contents — and produces findings.
+- A finding-based **waiver** (with owner + expiry) suppresses a matching finding
+  only while it is `active` and unexpired; expired/revoked waivers never suppress.
+- Review queue, trends, action planner (advisory text only), evidence export
+  (excludes secrets/contents/DB snapshots), and audits are all read-only.
+- Typical flow:
+  `--create-governance-policy --default` → `--evaluate-governance-policies`
+  → `--create-governance-review-items EVALUATION_ID`
+  → `--create-governance-waiver FINDING_ID --owner O --reason "..." --expiry-days N`
+  → `--fleet-governance-report` → `--governance-trends`
+  → `--plan-governance-actions` → `--export-governance-evidence`
+  → `--multi-project-governance-audit` → `--multi-project-stage8-audit`.
+- Stage 8 generated reports are ignored runtime artifacts (see `.gitignore`):
+  `governance_policy_evaluation_reports/`, `fleet_governance_reports/`,
+  `governance_trend_reports/`, `governance_evidence_exports/`,
+  `multi_project_governance_audit_reports/`,
+  `multi_project_stage8_audit_reports/`.
+
 
 <claude-mem-context>
 # Memory Context
