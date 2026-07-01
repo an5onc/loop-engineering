@@ -1,6 +1,6 @@
 # Loop Engineering Agent Handoff
 
-- Generated at: 2026-07-01T14:35:02
+- Generated at: 2026-07-01T15:34:37
 - Branch: `main`
 - Remote: `https://github.com/an5onc/loop-engineering.git`
 
@@ -63,6 +63,9 @@ These are intentionally local-only and ignored:
 - `cross_project_execution_snapshot_reports/`
 - `cross_project_execution_runtime_reports/`
 - `cross_project_stage10_audit_reports/`
+- `cross_project_orchestration_reports/`
+- `cross_project_orchestration_audit_reports/`
+- `cross_project_stage11_audit_reports/`
 
 ## Multi-Project Operations (Stage 7)
 
@@ -127,6 +130,19 @@ explicit `--confirm-execution`.
 - Execute: `--execute-cross-project-command SESSION_ID --confirmation CONFIRMATION_ID --snapshot SNAPSHOT_ID --confirm-execution`
 - Verify/outcome/audit: `--verify-cross-project-execution ATTEMPT_ID` -> `--record-cross-project-execution-outcome ATTEMPT_ID` -> `--cross-project-stage10-audit`
 - Execution uses `terminal.run_command`; no alternate subprocess path, hidden model call, external job, auto-commit, push, branch creation, or batch execution.
+
+## Controlled Multi-Step Orchestration (Stage 11)
+
+Stage 11 coordinates multiple Stage 10 single-step executions while keeping
+Stage 10 as the only runtime execution layer. It adds orchestration plans,
+dry-runs, runs, step controls, one-step advancement, verification binding,
+rollback status, reports, and audits.
+
+- Plan/dry-run/run: `--plan-cross-project-orchestration SESSION_ID` -> `--dry-run-cross-project-orchestration PLAN_ID` -> `--start-cross-project-orchestration PLAN_ID --dry-run DRY_RUN_ID`
+- Controls: `--cross-project-orchestration-step-controls RUN_ID --step STEP_ID`
+- Advance one step: `--advance-cross-project-orchestration RUN_ID --step STEP_ID --confirmation CONFIRMATION_ID --snapshot SNAPSHOT_ID --confirm-execution`
+- Verify/report/audit: `--verify-cross-project-orchestration-step RUN_ID --step STEP_ID` -> `--cross-project-orchestration-report RUN_ID` -> `--cross-project-stage11-audit`
+- No parallel execution, automatic retry, automatic rollback, Git mutation, external job, hidden model call, or broader command allowlist.
 
 ## Next Agent Checklist
 

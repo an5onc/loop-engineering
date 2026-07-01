@@ -46,3 +46,6 @@ cross_project_stage9_audit_reports/
 cross_project_execution_snapshot_reports/
 cross_project_execution_runtime_reports/
 cross_project_stage10_audit_reports/
+cross_project_orchestration_reports/
+cross_project_orchestration_audit_reports/
+cross_project_stage11_audit_reports/

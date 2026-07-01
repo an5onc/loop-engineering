@@ -97,6 +97,16 @@ import cross_project_execution_rollback
 import cross_project_execution_outcomes
 import cross_project_runtime_audit
 import cross_project_stage10_audit
+import cross_project_orchestration_plans
+import cross_project_orchestration_dry_run
+import cross_project_orchestration_runs
+import cross_project_orchestration_controls
+import cross_project_orchestration_runtime
+import cross_project_orchestration_verification
+import cross_project_orchestration_rollback
+import cross_project_orchestration_reports
+import cross_project_orchestration_audit
+import cross_project_stage11_audit
 from loop_engine import LoopEngine
 
 USAGE = """Loop Engineering — orchestrates local Ollama models in a safe
@@ -10093,6 +10103,21 @@ def _latest_stage10_audit_id(conn):
     return rows[0]["id"] if rows else None
 
 
+def _latest_orchestration_plan_id(conn):
+    rows = database.list_cross_project_orchestration_plans(conn, limit=1)
+    return rows[0]["id"] if rows else None
+
+
+def _latest_orchestration_dry_run_id(conn):
+    rows = database.list_cross_project_orchestration_dry_runs(conn, limit=1)
+    return rows[0]["id"] if rows else None
+
+
+def _latest_orchestration_run_id(conn):
+    rows = database.list_cross_project_orchestration_runs(conn, limit=1)
+    return rows[0]["id"] if rows else None
+
+
 def _print_execution_intent(intent) -> None:
     print(f"id         : {intent.id}")
     print(f"source     : {intent.source_type}:{intent.source_id}")
@@ -11008,6 +11033,374 @@ def _cmd_cross_project_stage10_audit(args) -> int:
     return 0
 
 
+def _print_orchestration_plan(plan) -> None:
+    _rule("CROSS-PROJECT ORCHESTRATION PLAN")
+    print(f"plan id    : {plan.id}")
+    print(f"session id : {plan.session_id}")
+    print(f"status     : {plan.status}")
+    print(f"steps      : total={plan.total_steps} ready={plan.ready_steps} "
+          f"blocked={plan.blocked_steps}")
+    for step in plan.steps:
+        print(f"- #{step.id} seq={step.sequence_number} stage10_step={step.stage10_step_id} "
+              f"project={step.project_key} status={step.status}")
+        if step.blocked_reason:
+            print(f"  blocked: {step.blocked_reason}")
+
+
+def _cmd_plan_cross_project_orchestration(args) -> int:
+    if not args:
+        print("ERROR: --plan-cross-project-orchestration needs SESSION_ID",
+              file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    try:
+        session_id = _parse_id_or_latest(
+            conn, args[0], _latest_execution_session_id, "execution session")
+        plan = cross_project_orchestration_plans.CrossProjectOrchestrationPlanBuilder(
+            conn).build_plan(session_id)
+    except (TypeError, ValueError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    _print_orchestration_plan(plan)
+    return 0
+
+
+def _cmd_orchestration_plans(args) -> int:
+    conn = database.init_db()
+    rows = database.list_cross_project_orchestration_plans(conn)
+    _rule(f"CROSS-PROJECT ORCHESTRATION PLANS ({len(rows)})")
+    if not rows:
+        print("(none)")
+    for row in rows:
+        print(f"#{row['id']} session={row['session_id']} status={row['status']} "
+              f"steps={row['total_steps']}")
+    return 0
+
+
+def _cmd_orchestration_plan(args) -> int:
+    if not args:
+        print("ERROR: --cross-project-orchestration-plan needs PLAN_ID|latest",
+              file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    try:
+        plan_id = _parse_id_or_latest(
+            conn, args[0], _latest_orchestration_plan_id, "orchestration plan")
+    except (TypeError, ValueError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    plan = cross_project_orchestration_plans.CrossProjectOrchestrationPlanBuilder(
+        conn).get_plan(plan_id)
+    if plan is None:
+        print(f"ERROR: no orchestration plan {args[0]}", file=sys.stderr)
+        return 1
+    _print_orchestration_plan(plan)
+    return 0
+
+
+def _cmd_dry_run_cross_project_orchestration(args) -> int:
+    if not args:
+        print("ERROR: --dry-run-cross-project-orchestration needs PLAN_ID",
+              file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    try:
+        plan_id = _parse_id_or_latest(
+            conn, args[0], _latest_orchestration_plan_id, "orchestration plan")
+        report = cross_project_orchestration_dry_run.CrossProjectOrchestrationDryRunValidator(
+            conn).validate(plan_id)
+    except (TypeError, ValueError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    _rule("CROSS-PROJECT ORCHESTRATION DRY-RUN")
+    print(f"dry-run id    : {report.id}")
+    print(f"plan id       : {report.plan_id}")
+    print(f"overall status: {report.overall_status}")
+    for finding in report.findings:
+        print(f"- {finding.status}: {finding.category} — {finding.message}")
+    return 0
+
+
+def _cmd_orchestration_dry_runs(args) -> int:
+    conn = database.init_db()
+    rows = database.list_cross_project_orchestration_dry_runs(conn)
+    _rule(f"CROSS-PROJECT ORCHESTRATION DRY-RUNS ({len(rows)})")
+    if not rows:
+        print("(none)")
+    for row in rows:
+        print(f"#{row['id']} plan={row['orchestration_plan_id']} "
+              f"status={row['overall_status']}")
+    return 0
+
+
+def _cmd_orchestration_dry_run(args) -> int:
+    if not args:
+        print("ERROR: --cross-project-orchestration-dry-run needs DRY_RUN_ID|latest",
+              file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    try:
+        dry_run_id = _parse_id_or_latest(
+            conn, args[0], _latest_orchestration_dry_run_id,
+            "orchestration dry-run")
+        report = cross_project_orchestration_dry_run.CrossProjectOrchestrationDryRunValidator(
+            conn).get_dry_run(dry_run_id)
+    except (TypeError, ValueError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    if report is None:
+        print(f"ERROR: no orchestration dry-run {args[0]}", file=sys.stderr)
+        return 1
+    _rule("CROSS-PROJECT ORCHESTRATION DRY-RUN")
+    print(f"dry-run id    : {report.id}")
+    print(f"plan id       : {report.plan_id}")
+    print(f"overall status: {report.overall_status}")
+    return 0
+
+
+def _print_orchestration_run(run) -> None:
+    _rule("CROSS-PROJECT ORCHESTRATION RUN")
+    print(f"run id     : {run.id}")
+    print(f"plan id    : {run.plan_id}")
+    print(f"dry-run id : {run.dry_run_id}")
+    print(f"status     : {run.status}")
+    print(f"steps      : total={run.total_steps} completed={run.completed_steps} "
+          f"blocked={run.blocked_steps}")
+    for step in run.steps:
+        print(f"- #{step.id} seq={step.sequence_number} stage10_step={step.stage10_step_id} "
+              f"project={step.project_key} status={step.status}")
+
+
+def _cmd_start_cross_project_orchestration(args) -> int:
+    if not args:
+        print("ERROR: --start-cross-project-orchestration needs PLAN_ID --dry-run DRY_RUN_ID",
+              file=sys.stderr)
+        return 1
+    dry_run_arg = _flag_val(args, "--dry-run")
+    if dry_run_arg is None:
+        print("ERROR: orchestration start requires --dry-run DRY_RUN_ID",
+              file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    try:
+        plan_id = _parse_id_or_latest(
+            conn, args[0], _latest_orchestration_plan_id, "orchestration plan")
+        dry_run_id = _parse_id_or_latest(
+            conn, dry_run_arg, _latest_orchestration_dry_run_id,
+            "orchestration dry-run")
+        run = cross_project_orchestration_runs.CrossProjectOrchestrationRunManager(
+            conn).start(plan_id, dry_run_id)
+    except (TypeError, ValueError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    _print_orchestration_run(run)
+    return 0
+
+
+def _cmd_orchestration_runs(args) -> int:
+    conn = database.init_db()
+    rows = database.list_cross_project_orchestration_runs(conn)
+    _rule(f"CROSS-PROJECT ORCHESTRATION RUNS ({len(rows)})")
+    if not rows:
+        print("(none)")
+    for row in rows:
+        print(f"#{row['id']} plan={row['orchestration_plan_id']} status={row['status']}")
+    return 0
+
+
+def _cmd_orchestration_run(args) -> int:
+    if not args:
+        print("ERROR: --cross-project-orchestration-run needs RUN_ID|latest",
+              file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    try:
+        run_id = _parse_id_or_latest(
+            conn, args[0], _latest_orchestration_run_id, "orchestration run")
+    except (TypeError, ValueError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    run = cross_project_orchestration_runs.CrossProjectOrchestrationRunManager(
+        conn).get_run(run_id)
+    if run is None:
+        print(f"ERROR: no orchestration run {args[0]}", file=sys.stderr)
+        return 1
+    _print_orchestration_run(run)
+    return 0
+
+
+def _cmd_orchestration_step_controls(args) -> int:
+    if not args:
+        print("ERROR: --cross-project-orchestration-step-controls needs RUN_ID --step STEP_ID",
+              file=sys.stderr)
+        return 1
+    step_arg = _flag_val(args, "--step")
+    if step_arg is None:
+        print("ERROR: orchestration step controls require --step STEP_ID",
+              file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    try:
+        run_id = _parse_id_or_latest(
+            conn, args[0], _latest_orchestration_run_id, "orchestration run")
+        control = cross_project_orchestration_controls.CrossProjectOrchestrationControlResolver(
+            conn).resolve(run_id, int(step_arg))
+    except (TypeError, ValueError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    _rule("CROSS-PROJECT ORCHESTRATION STEP CONTROLS")
+    print(f"control id : {control.id}")
+    print(f"run id     : {control.run_id}")
+    print(f"step id    : {control.orchestration_step_id}")
+    print(f"status     : {control.status}")
+    print(f"next action: {control.next_action}")
+    return 0
+
+
+def _cmd_advance_cross_project_orchestration(args) -> int:
+    if not args:
+        print("ERROR: --advance-cross-project-orchestration needs RUN_ID --step STEP_ID "
+              "--confirmation CONFIRMATION_ID --snapshot SNAPSHOT_ID --confirm-execution",
+              file=sys.stderr)
+        return 1
+    step_arg = _flag_val(args, "--step")
+    confirmation_arg = _flag_val(args, "--confirmation")
+    snapshot_arg = _flag_val(args, "--snapshot")
+    if step_arg is None or confirmation_arg is None or snapshot_arg is None:
+        print("ERROR: orchestration advancement requires --step, --confirmation, and --snapshot",
+              file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    try:
+        run_id = _parse_id_or_latest(
+            conn, args[0], _latest_orchestration_run_id, "orchestration run")
+        confirmation_id = _parse_id_or_latest(
+            conn, confirmation_arg, _latest_execution_confirmation_id,
+            "execution confirmation")
+        snapshot_id = _parse_id_or_latest(
+            conn, snapshot_arg, _latest_execution_snapshot_id, "execution snapshot")
+        advancement = cross_project_orchestration_runtime.CrossProjectOrchestrationRuntime(
+            conn).advance(run_id, int(step_arg), confirmation_id, snapshot_id,
+                          confirm_execution=("--confirm-execution" in args))
+    except (TypeError, ValueError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    _rule("CROSS-PROJECT ORCHESTRATION ADVANCEMENT")
+    print(f"advancement id: {advancement.id}")
+    print(f"run id        : {advancement.run_id}")
+    print(f"attempt id    : {advancement.attempt_id}")
+    print(f"status        : {advancement.status}")
+    return 0
+
+
+def _cmd_verify_cross_project_orchestration_step(args) -> int:
+    if not args:
+        print("ERROR: --verify-cross-project-orchestration-step needs RUN_ID --step STEP_ID",
+              file=sys.stderr)
+        return 1
+    step_arg = _flag_val(args, "--step")
+    if step_arg is None:
+        print("ERROR: orchestration verification requires --step STEP_ID",
+              file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    try:
+        run_id = _parse_id_or_latest(
+            conn, args[0], _latest_orchestration_run_id, "orchestration run")
+        result = cross_project_orchestration_verification.CrossProjectOrchestrationVerificationBinder(
+            conn).verify_step(run_id, int(step_arg))
+    except (TypeError, ValueError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    _rule("CROSS-PROJECT ORCHESTRATION STEP VERIFICATION")
+    print(f"verification id: {result.id}")
+    print(f"run id         : {result.run_id}")
+    print(f"attempt id     : {result.attempt_id}")
+    print(f"status         : {result.status}")
+    return 0
+
+
+def _cmd_orchestration_rollback_status(args) -> int:
+    if not args:
+        print("ERROR: --cross-project-orchestration-rollback-status needs RUN_ID",
+              file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    try:
+        run_id = _parse_id_or_latest(
+            conn, args[0], _latest_orchestration_run_id, "orchestration run")
+        status = cross_project_orchestration_rollback.CrossProjectOrchestrationRollbackCoordinator(
+            conn).status(run_id)
+    except (TypeError, ValueError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    _rule("CROSS-PROJECT ORCHESTRATION ROLLBACK STATUS")
+    print(f"run id         : {status.run_id}")
+    print(f"total snapshots: {status.total_snapshots}")
+    print(f"restored steps : {status.restored_steps}")
+    return 0
+
+
+def _cmd_orchestration_report(args) -> int:
+    if not args:
+        print("ERROR: --cross-project-orchestration-report needs RUN_ID",
+              file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    try:
+        run_id = _parse_id_or_latest(
+            conn, args[0], _latest_orchestration_run_id, "orchestration run")
+        engine = cross_project_orchestration_reports.CrossProjectOrchestrationReportBuilder(
+            conn)
+        report = engine.build_report(run_id)
+        report_id = engine.save_report(report)
+        markdown_path = engine.save_markdown_report(report_id, report) if "--save-report" in args else None
+    except (TypeError, ValueError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    _rule("CROSS-PROJECT ORCHESTRATION REPORT")
+    print(f"report id   : {report_id}")
+    print(f"run id      : {report.run_id}")
+    print(f"status      : {report.overall_status}")
+    print(f"next action : {report.next_action}")
+    if markdown_path:
+        print(f"markdown    : {markdown_path}")
+    return 0
+
+
+def _cmd_orchestration_audit(args) -> int:
+    conn = database.init_db()
+    engine = cross_project_orchestration_audit.CrossProjectOrchestrationAuditEngine(conn)
+    report = engine.build_report()
+    audit_id = engine.save_audit(report)
+    markdown_path = engine.save_markdown_report(audit_id, report) if "--save-report" in args else None
+    _rule("CROSS-PROJECT ORCHESTRATION AUDIT")
+    print(f"audit id      : {audit_id}")
+    print(f"overall status: {report.overall_status}")
+    if markdown_path:
+        print(f"markdown      : {markdown_path}")
+    for check in report.checks:
+        print(f"- {check.status}: {check.name} — {check.message}")
+    return 0
+
+
+def _cmd_cross_project_stage11_audit(args) -> int:
+    conn = database.init_db()
+    engine = cross_project_stage11_audit.CrossProjectStage11AuditEngine(conn)
+    report = engine.build_report()
+    audit_id = engine.save_audit(report)
+    markdown_path = engine.save_markdown_report(audit_id, report) if "--save-report" in args else None
+    _rule("STAGE 11 FINAL AUDIT — CONTROLLED ORCHESTRATION")
+    print(f"audit id      : {audit_id}")
+    print(f"overall status: {report.overall_status}")
+    print(f"stage 12 ready: {report.stage12_readiness.get('ready')}")
+    if markdown_path:
+        print(f"markdown      : {markdown_path}")
+    for check in report.checks:
+        print(f"- {check.status}: {check.name} — {check.message}")
+    return 0
+
+
 def _print_stage9_audit(report, audit_id=None, markdown_path=None) -> None:
     _rule("STAGE 9 FINAL AUDIT — CONTROLLED CROSS-PROJECT EXECUTION PLANNING")
     if audit_id is not None:
@@ -11576,6 +11969,39 @@ def main() -> int:
         return _cmd_cross_project_runtime_audit(args[1:])
     if args and args[0] == "--cross-project-stage10-audit":
         return _cmd_cross_project_stage10_audit(args[1:])
+    # --- Stage 11: Controlled Multi-Step Orchestration ------------------
+    if args and args[0] == "--plan-cross-project-orchestration":
+        return _cmd_plan_cross_project_orchestration(args[1:])
+    if args and args[0] == "--cross-project-orchestration-plans":
+        return _cmd_orchestration_plans(args[1:])
+    if args and args[0] == "--cross-project-orchestration-plan":
+        return _cmd_orchestration_plan(args[1:])
+    if args and args[0] == "--dry-run-cross-project-orchestration":
+        return _cmd_dry_run_cross_project_orchestration(args[1:])
+    if args and args[0] == "--cross-project-orchestration-dry-runs":
+        return _cmd_orchestration_dry_runs(args[1:])
+    if args and args[0] == "--cross-project-orchestration-dry-run":
+        return _cmd_orchestration_dry_run(args[1:])
+    if args and args[0] == "--start-cross-project-orchestration":
+        return _cmd_start_cross_project_orchestration(args[1:])
+    if args and args[0] == "--cross-project-orchestration-runs":
+        return _cmd_orchestration_runs(args[1:])
+    if args and args[0] == "--cross-project-orchestration-run":
+        return _cmd_orchestration_run(args[1:])
+    if args and args[0] == "--cross-project-orchestration-step-controls":
+        return _cmd_orchestration_step_controls(args[1:])
+    if args and args[0] == "--advance-cross-project-orchestration":
+        return _cmd_advance_cross_project_orchestration(args[1:])
+    if args and args[0] == "--verify-cross-project-orchestration-step":
+        return _cmd_verify_cross_project_orchestration_step(args[1:])
+    if args and args[0] == "--cross-project-orchestration-rollback-status":
+        return _cmd_orchestration_rollback_status(args[1:])
+    if args and args[0] == "--cross-project-orchestration-report":
+        return _cmd_orchestration_report(args[1:])
+    if args and args[0] == "--cross-project-orchestration-audit":
+        return _cmd_orchestration_audit(args[1:])
+    if args and args[0] == "--cross-project-stage11-audit":
+        return _cmd_cross_project_stage11_audit(args[1:])
 
     (commit, commit_message, loop_name, overrides, min_conf, workspace_name,
      require_approval, auto_approve_low_risk, approval_mode,

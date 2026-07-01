@@ -161,6 +161,33 @@ one explicitly confirmed project step at a time.
   `cross_project_execution_runtime_reports/`,
   `cross_project_stage10_audit_reports/`.
 
+## Controlled Multi-Step Orchestration (Stage 11)
+
+Stage 11 coordinates multiple Stage 10 single-step executions without adding a
+new executor or broader permissions.
+
+- Orchestration plans, dry-runs, runs, controls, reports, and audits are
+  metadata over Stage 10 records.
+- Advancement executes at most one step per explicit CLI invocation and
+  delegates to Stage 10 runtime. Do not add alternate subprocess paths.
+- Every advanced step still requires approved Stage 10 confirmation, rollback
+  snapshot, allowlisted command, confined cwd, and `--confirm-execution`.
+- Failed or unverified steps block later steps. No automatic retry, rollback,
+  batch execution, parallel execution, Git mutation, external jobs, or model
+  calls.
+- Typical flow:
+  `--plan-cross-project-orchestration SESSION_ID`
+  → `--dry-run-cross-project-orchestration PLAN_ID`
+  → `--start-cross-project-orchestration PLAN_ID --dry-run DRY_RUN_ID`
+  → `--cross-project-orchestration-step-controls RUN_ID --step STEP_ID`
+  → `--advance-cross-project-orchestration RUN_ID --step STEP_ID --confirmation CONFIRMATION_ID --snapshot SNAPSHOT_ID --confirm-execution`
+  → `--verify-cross-project-orchestration-step RUN_ID --step STEP_ID`
+  → `--cross-project-orchestration-audit` / `--cross-project-stage11-audit`.
+- Stage 11 generated reports are ignored runtime artifacts:
+  `cross_project_orchestration_reports/`,
+  `cross_project_orchestration_audit_reports/`,
+  `cross_project_stage11_audit_reports/`.
+
 
 <claude-mem-context>
 # Memory Context

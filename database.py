@@ -2425,6 +2425,252 @@ CREATE TABLE IF NOT EXISTS cross_project_stage10_audit_markdown_reports (
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (stage10_audit_id) REFERENCES cross_project_stage10_audits(id)
 );
+
+-- ===================================================================== --
+-- Stage 11 — Controlled Multi-Step Execution Orchestration              --
+-- ===================================================================== --
+
+CREATE TABLE IF NOT EXISTS cross_project_orchestration_plans (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id INTEGER NOT NULL,
+    source_execution_plan_id INTEGER NOT NULL,
+    generated_at TEXT,
+    status TEXT,
+    summary TEXT,
+    total_steps INTEGER,
+    ready_steps INTEGER,
+    blocked_steps INTEGER,
+    safety_notes_json TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (session_id) REFERENCES cross_project_execution_sessions(id)
+);
+
+CREATE TABLE IF NOT EXISTS cross_project_orchestration_steps (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    orchestration_plan_id INTEGER NOT NULL,
+    session_id INTEGER NOT NULL,
+    stage10_scope_check_id INTEGER,
+    stage10_step_id INTEGER NOT NULL,
+    command_proposal_id INTEGER,
+    project_key TEXT,
+    sequence_number INTEGER,
+    status TEXT,
+    action_summary TEXT,
+    blocked_reason TEXT,
+    required_controls_json TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (orchestration_plan_id) REFERENCES cross_project_orchestration_plans(id)
+);
+
+CREATE TABLE IF NOT EXISTS cross_project_orchestration_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    orchestration_plan_id INTEGER NOT NULL,
+    event_type TEXT,
+    detail TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (orchestration_plan_id) REFERENCES cross_project_orchestration_plans(id)
+);
+
+CREATE TABLE IF NOT EXISTS cross_project_orchestration_dry_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    orchestration_plan_id INTEGER NOT NULL,
+    generated_at TEXT,
+    overall_status TEXT,
+    total_findings INTEGER,
+    passed_findings INTEGER,
+    failed_findings INTEGER,
+    blocked_findings INTEGER,
+    summary TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (orchestration_plan_id) REFERENCES cross_project_orchestration_plans(id)
+);
+
+CREATE TABLE IF NOT EXISTS cross_project_orchestration_dry_run_findings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    dry_run_id INTEGER NOT NULL,
+    orchestration_plan_id INTEGER NOT NULL,
+    status TEXT,
+    category TEXT,
+    message TEXT,
+    evidence TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (dry_run_id) REFERENCES cross_project_orchestration_dry_runs(id)
+);
+
+CREATE TABLE IF NOT EXISTS cross_project_orchestration_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    orchestration_plan_id INTEGER NOT NULL,
+    dry_run_id INTEGER NOT NULL,
+    started_at TEXT,
+    status TEXT,
+    total_steps INTEGER,
+    completed_steps INTEGER,
+    blocked_steps INTEGER,
+    summary TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT,
+    FOREIGN KEY (orchestration_plan_id) REFERENCES cross_project_orchestration_plans(id)
+);
+
+CREATE TABLE IF NOT EXISTS cross_project_orchestration_run_steps (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id INTEGER NOT NULL,
+    orchestration_step_id INTEGER NOT NULL,
+    stage10_step_id INTEGER NOT NULL,
+    command_proposal_id INTEGER,
+    project_key TEXT,
+    sequence_number INTEGER,
+    status TEXT,
+    attempt_id INTEGER,
+    verification_run_id INTEGER,
+    outcome_id INTEGER,
+    updated_at TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (run_id) REFERENCES cross_project_orchestration_runs(id)
+);
+
+CREATE TABLE IF NOT EXISTS cross_project_orchestration_run_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id INTEGER NOT NULL,
+    event_type TEXT,
+    detail TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (run_id) REFERENCES cross_project_orchestration_runs(id)
+);
+
+CREATE TABLE IF NOT EXISTS cross_project_orchestration_step_controls (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id INTEGER NOT NULL,
+    run_step_id INTEGER NOT NULL,
+    orchestration_step_id INTEGER NOT NULL,
+    status TEXT,
+    confirmation_id INTEGER,
+    snapshot_id INTEGER,
+    required_controls_json TEXT,
+    next_action TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (run_id) REFERENCES cross_project_orchestration_runs(id)
+);
+
+CREATE TABLE IF NOT EXISTS cross_project_orchestration_step_advancements (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id INTEGER NOT NULL,
+    run_step_id INTEGER NOT NULL,
+    orchestration_step_id INTEGER NOT NULL,
+    confirmation_id INTEGER,
+    snapshot_id INTEGER,
+    attempt_id INTEGER,
+    status TEXT,
+    safety_notes_json TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (run_id) REFERENCES cross_project_orchestration_runs(id)
+);
+
+CREATE TABLE IF NOT EXISTS cross_project_orchestration_step_verifications (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id INTEGER NOT NULL,
+    run_step_id INTEGER NOT NULL,
+    orchestration_step_id INTEGER NOT NULL,
+    attempt_id INTEGER,
+    verification_run_id INTEGER,
+    outcome_id INTEGER,
+    status TEXT,
+    summary TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (run_id) REFERENCES cross_project_orchestration_runs(id)
+);
+
+CREATE TABLE IF NOT EXISTS cross_project_orchestration_step_rollbacks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id INTEGER NOT NULL,
+    run_step_id INTEGER,
+    orchestration_step_id INTEGER,
+    snapshot_id INTEGER,
+    restore_id INTEGER,
+    status TEXT,
+    summary TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (run_id) REFERENCES cross_project_orchestration_runs(id)
+);
+
+CREATE TABLE IF NOT EXISTS cross_project_orchestration_reports (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id INTEGER NOT NULL,
+    generated_at TEXT,
+    overall_status TEXT,
+    summary TEXT,
+    next_action TEXT,
+    steps_json TEXT,
+    rollback_status_json TEXT,
+    safety_notes_json TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (run_id) REFERENCES cross_project_orchestration_runs(id)
+);
+
+CREATE TABLE IF NOT EXISTS cross_project_orchestration_markdown_reports (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    report_id INTEGER NOT NULL,
+    report_path TEXT,
+    report_format TEXT,
+    content_hash TEXT,
+    bytes_written INTEGER,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (report_id) REFERENCES cross_project_orchestration_reports(id)
+);
+
+CREATE TABLE IF NOT EXISTS cross_project_orchestration_audits (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    generated_at TEXT,
+    overall_status TEXT,
+    total_checks INTEGER,
+    passed_checks INTEGER,
+    warning_checks INTEGER,
+    failed_checks INTEGER,
+    blocked_checks INTEGER,
+    checks_json TEXT,
+    recommendations_json TEXT,
+    safety_notes_json TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS cross_project_orchestration_audit_markdown_reports (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    audit_id INTEGER NOT NULL,
+    report_path TEXT,
+    report_format TEXT,
+    content_hash TEXT,
+    bytes_written INTEGER,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (audit_id) REFERENCES cross_project_orchestration_audits(id)
+);
+
+CREATE TABLE IF NOT EXISTS cross_project_stage11_audits (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    generated_at TEXT,
+    overall_status TEXT,
+    total_checks INTEGER,
+    passed_checks INTEGER,
+    warning_checks INTEGER,
+    failed_checks INTEGER,
+    blocked_checks INTEGER,
+    checks_json TEXT,
+    recommendations_json TEXT,
+    stage12_readiness_json TEXT,
+    safety_notes_json TEXT,
+    next_steps_json TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS cross_project_stage11_audit_markdown_reports (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    stage11_audit_id INTEGER NOT NULL,
+    report_path TEXT,
+    report_format TEXT,
+    content_hash TEXT,
+    bytes_written INTEGER,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (stage11_audit_id) REFERENCES cross_project_stage11_audits(id)
+);
 """
 
 
@@ -7359,3 +7605,428 @@ def get_cross_project_stage10_audit_markdown_report(conn, audit_id):
     return conn.execute(
         "SELECT * FROM cross_project_stage10_audit_markdown_reports "
         "WHERE stage10_audit_id=? ORDER BY id DESC LIMIT 1", (audit_id,)).fetchone()
+
+
+# ===================================================================== #
+# Stage 11 — Controlled Multi-Step Execution Orchestration               #
+# ===================================================================== #
+def save_cross_project_orchestration_plan(
+        conn, session_id, source_execution_plan_id, generated_at, status, summary,
+        total_steps, ready_steps, blocked_steps, safety_notes_json) -> int:
+    cur = conn.execute(
+        "INSERT INTO cross_project_orchestration_plans (session_id, "
+        "source_execution_plan_id, generated_at, status, summary, total_steps, "
+        "ready_steps, blocked_steps, safety_notes_json) VALUES (?,?,?,?,?,?,?,?,?)",
+        (session_id, source_execution_plan_id, generated_at, status, summary,
+         total_steps, ready_steps, blocked_steps, safety_notes_json))
+    conn.commit()
+    return cur.lastrowid
+
+
+def get_cross_project_orchestration_plan(conn, plan_id):
+    return conn.execute(
+        "SELECT * FROM cross_project_orchestration_plans WHERE id=?",
+        (plan_id,)).fetchone()
+
+
+def list_cross_project_orchestration_plans(conn, limit=50):
+    return conn.execute(
+        "SELECT * FROM cross_project_orchestration_plans ORDER BY id DESC LIMIT ?",
+        (limit,)).fetchall()
+
+
+def save_cross_project_orchestration_step(
+        conn, orchestration_plan_id, session_id, stage10_scope_check_id,
+        stage10_step_id, command_proposal_id, project_key, sequence_number, status,
+        action_summary, blocked_reason, required_controls_json) -> int:
+    cur = conn.execute(
+        "INSERT INTO cross_project_orchestration_steps (orchestration_plan_id, "
+        "session_id, stage10_scope_check_id, stage10_step_id, command_proposal_id, "
+        "project_key, sequence_number, status, action_summary, blocked_reason, "
+        "required_controls_json) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+        (orchestration_plan_id, session_id, stage10_scope_check_id,
+         stage10_step_id, command_proposal_id, project_key, sequence_number, status,
+         action_summary, blocked_reason, required_controls_json))
+    conn.commit()
+    return cur.lastrowid
+
+
+def get_cross_project_orchestration_step(conn, step_id):
+    return conn.execute(
+        "SELECT * FROM cross_project_orchestration_steps WHERE id=?",
+        (step_id,)).fetchone()
+
+
+def list_cross_project_orchestration_steps(conn, orchestration_plan_id=None,
+                                           limit=200):
+    if orchestration_plan_id is not None:
+        return conn.execute(
+            "SELECT * FROM cross_project_orchestration_steps "
+            "WHERE orchestration_plan_id=? ORDER BY sequence_number, id LIMIT ?",
+            (orchestration_plan_id, limit)).fetchall()
+    return conn.execute(
+        "SELECT * FROM cross_project_orchestration_steps ORDER BY id DESC LIMIT ?",
+        (limit,)).fetchall()
+
+
+def save_cross_project_orchestration_event(conn, orchestration_plan_id,
+                                           event_type, detail=None) -> int:
+    cur = conn.execute(
+        "INSERT INTO cross_project_orchestration_events "
+        "(orchestration_plan_id, event_type, detail) VALUES (?,?,?)",
+        (orchestration_plan_id, event_type, detail))
+    conn.commit()
+    return cur.lastrowid
+
+
+def save_cross_project_orchestration_dry_run(
+        conn, orchestration_plan_id, generated_at, overall_status, total_findings,
+        passed_findings, failed_findings, blocked_findings, summary) -> int:
+    cur = conn.execute(
+        "INSERT INTO cross_project_orchestration_dry_runs "
+        "(orchestration_plan_id, generated_at, overall_status, total_findings, "
+        "passed_findings, failed_findings, blocked_findings, summary) "
+        "VALUES (?,?,?,?,?,?,?,?)",
+        (orchestration_plan_id, generated_at, overall_status, total_findings,
+         passed_findings, failed_findings, blocked_findings, summary))
+    conn.commit()
+    return cur.lastrowid
+
+
+def get_cross_project_orchestration_dry_run(conn, dry_run_id):
+    return conn.execute(
+        "SELECT * FROM cross_project_orchestration_dry_runs WHERE id=?",
+        (dry_run_id,)).fetchone()
+
+
+def list_cross_project_orchestration_dry_runs(conn, plan_id=None, limit=50):
+    if plan_id is not None:
+        return conn.execute(
+            "SELECT * FROM cross_project_orchestration_dry_runs "
+            "WHERE orchestration_plan_id=? ORDER BY id DESC LIMIT ?",
+            (plan_id, limit)).fetchall()
+    return conn.execute(
+        "SELECT * FROM cross_project_orchestration_dry_runs ORDER BY id DESC LIMIT ?",
+        (limit,)).fetchall()
+
+
+def save_cross_project_orchestration_dry_run_finding(
+        conn, dry_run_id, orchestration_plan_id, status, category, message,
+        evidence) -> int:
+    cur = conn.execute(
+        "INSERT INTO cross_project_orchestration_dry_run_findings "
+        "(dry_run_id, orchestration_plan_id, status, category, message, evidence) "
+        "VALUES (?,?,?,?,?,?)",
+        (dry_run_id, orchestration_plan_id, status, category, message, evidence))
+    conn.commit()
+    return cur.lastrowid
+
+
+def list_cross_project_orchestration_dry_run_findings(conn, dry_run_id):
+    return conn.execute(
+        "SELECT * FROM cross_project_orchestration_dry_run_findings "
+        "WHERE dry_run_id=? ORDER BY id", (dry_run_id,)).fetchall()
+
+
+def save_cross_project_orchestration_run(
+        conn, orchestration_plan_id, dry_run_id, started_at, status, total_steps,
+        completed_steps, blocked_steps, summary) -> int:
+    cur = conn.execute(
+        "INSERT INTO cross_project_orchestration_runs (orchestration_plan_id, "
+        "dry_run_id, started_at, status, total_steps, completed_steps, "
+        "blocked_steps, summary, updated_at) VALUES (?,?,?,?,?,?,?,?,?)",
+        (orchestration_plan_id, dry_run_id, started_at, status, total_steps,
+         completed_steps, blocked_steps, summary, _gov_now()))
+    conn.commit()
+    return cur.lastrowid
+
+
+def get_cross_project_orchestration_run(conn, run_id):
+    return conn.execute(
+        "SELECT * FROM cross_project_orchestration_runs WHERE id=?",
+        (run_id,)).fetchone()
+
+
+def list_cross_project_orchestration_runs(conn, limit=50):
+    return conn.execute(
+        "SELECT * FROM cross_project_orchestration_runs ORDER BY id DESC LIMIT ?",
+        (limit,)).fetchall()
+
+
+def update_cross_project_orchestration_run_status(
+        conn, run_id, status, completed_steps=None, blocked_steps=None,
+        summary=None) -> bool:
+    cur = conn.execute(
+        "UPDATE cross_project_orchestration_runs SET status=?, "
+        "completed_steps=COALESCE(?, completed_steps), "
+        "blocked_steps=COALESCE(?, blocked_steps), "
+        "summary=COALESCE(?, summary), updated_at=? WHERE id=?",
+        (status, completed_steps, blocked_steps, summary, _gov_now(), run_id))
+    conn.commit()
+    return cur.rowcount > 0
+
+
+def save_cross_project_orchestration_run_step(
+        conn, run_id, orchestration_step_id, stage10_step_id, command_proposal_id,
+        project_key, sequence_number, status) -> int:
+    cur = conn.execute(
+        "INSERT INTO cross_project_orchestration_run_steps (run_id, "
+        "orchestration_step_id, stage10_step_id, command_proposal_id, project_key, "
+        "sequence_number, status, updated_at) VALUES (?,?,?,?,?,?,?,?)",
+        (run_id, orchestration_step_id, stage10_step_id, command_proposal_id,
+         project_key, sequence_number, status, _gov_now()))
+    conn.commit()
+    return cur.lastrowid
+
+
+def get_cross_project_orchestration_run_step(conn, run_step_id):
+    return conn.execute(
+        "SELECT * FROM cross_project_orchestration_run_steps WHERE id=?",
+        (run_step_id,)).fetchone()
+
+
+def list_cross_project_orchestration_run_steps(conn, run_id=None, limit=200):
+    if run_id is not None:
+        return conn.execute(
+            "SELECT * FROM cross_project_orchestration_run_steps "
+            "WHERE run_id=? ORDER BY sequence_number, id LIMIT ?",
+            (run_id, limit)).fetchall()
+    return conn.execute(
+        "SELECT * FROM cross_project_orchestration_run_steps "
+        "ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
+
+
+def update_cross_project_orchestration_run_step(
+        conn, run_step_id, status, attempt_id=None, verification_run_id=None,
+        outcome_id=None) -> bool:
+    cur = conn.execute(
+        "UPDATE cross_project_orchestration_run_steps SET status=?, "
+        "attempt_id=COALESCE(?, attempt_id), "
+        "verification_run_id=COALESCE(?, verification_run_id), "
+        "outcome_id=COALESCE(?, outcome_id), updated_at=? WHERE id=?",
+        (status, attempt_id, verification_run_id, outcome_id, _gov_now(),
+         run_step_id))
+    conn.commit()
+    return cur.rowcount > 0
+
+
+def save_cross_project_orchestration_run_event(conn, run_id, event_type,
+                                               detail=None) -> int:
+    cur = conn.execute(
+        "INSERT INTO cross_project_orchestration_run_events "
+        "(run_id, event_type, detail) VALUES (?,?,?)",
+        (run_id, event_type, detail))
+    conn.commit()
+    return cur.lastrowid
+
+
+def save_cross_project_orchestration_step_control(
+        conn, run_id, run_step_id, orchestration_step_id, status, confirmation_id,
+        snapshot_id, required_controls_json, next_action) -> int:
+    cur = conn.execute(
+        "INSERT INTO cross_project_orchestration_step_controls (run_id, "
+        "run_step_id, orchestration_step_id, status, confirmation_id, snapshot_id, "
+        "required_controls_json, next_action) VALUES (?,?,?,?,?,?,?,?)",
+        (run_id, run_step_id, orchestration_step_id, status, confirmation_id,
+         snapshot_id, required_controls_json, next_action))
+    conn.commit()
+    return cur.lastrowid
+
+
+def get_cross_project_orchestration_step_control(conn, control_id):
+    return conn.execute(
+        "SELECT * FROM cross_project_orchestration_step_controls WHERE id=?",
+        (control_id,)).fetchone()
+
+
+def list_cross_project_orchestration_step_controls(conn, run_id=None, limit=50):
+    if run_id is not None:
+        return conn.execute(
+            "SELECT * FROM cross_project_orchestration_step_controls "
+            "WHERE run_id=? ORDER BY id DESC LIMIT ?", (run_id, limit)).fetchall()
+    return conn.execute(
+        "SELECT * FROM cross_project_orchestration_step_controls "
+        "ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
+
+
+def save_cross_project_orchestration_step_advancement(
+        conn, run_id, run_step_id, orchestration_step_id, confirmation_id,
+        snapshot_id, attempt_id, status, safety_notes_json) -> int:
+    cur = conn.execute(
+        "INSERT INTO cross_project_orchestration_step_advancements (run_id, "
+        "run_step_id, orchestration_step_id, confirmation_id, snapshot_id, "
+        "attempt_id, status, safety_notes_json) VALUES (?,?,?,?,?,?,?,?)",
+        (run_id, run_step_id, orchestration_step_id, confirmation_id, snapshot_id,
+         attempt_id, status, safety_notes_json))
+    conn.commit()
+    return cur.lastrowid
+
+
+def get_cross_project_orchestration_step_advancement(conn, advancement_id):
+    return conn.execute(
+        "SELECT * FROM cross_project_orchestration_step_advancements WHERE id=?",
+        (advancement_id,)).fetchone()
+
+
+def list_cross_project_orchestration_step_advancements(conn, run_id=None,
+                                                       limit=100):
+    if run_id is not None:
+        return conn.execute(
+            "SELECT * FROM cross_project_orchestration_step_advancements "
+            "WHERE run_id=? ORDER BY id DESC LIMIT ?", (run_id, limit)).fetchall()
+    return conn.execute(
+        "SELECT * FROM cross_project_orchestration_step_advancements "
+        "ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
+
+
+def save_cross_project_orchestration_step_verification(
+        conn, run_id, run_step_id, orchestration_step_id, attempt_id,
+        verification_run_id, outcome_id, status, summary) -> int:
+    cur = conn.execute(
+        "INSERT INTO cross_project_orchestration_step_verifications (run_id, "
+        "run_step_id, orchestration_step_id, attempt_id, verification_run_id, "
+        "outcome_id, status, summary) VALUES (?,?,?,?,?,?,?,?)",
+        (run_id, run_step_id, orchestration_step_id, attempt_id,
+         verification_run_id, outcome_id, status, summary))
+    conn.commit()
+    return cur.lastrowid
+
+
+def list_cross_project_orchestration_step_verifications(conn, run_id=None,
+                                                        limit=100):
+    if run_id is not None:
+        return conn.execute(
+            "SELECT * FROM cross_project_orchestration_step_verifications "
+            "WHERE run_id=? ORDER BY id DESC LIMIT ?", (run_id, limit)).fetchall()
+    return conn.execute(
+        "SELECT * FROM cross_project_orchestration_step_verifications "
+        "ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
+
+
+def save_cross_project_orchestration_step_rollback(
+        conn, run_id, run_step_id, orchestration_step_id, snapshot_id, restore_id,
+        status, summary) -> int:
+    cur = conn.execute(
+        "INSERT INTO cross_project_orchestration_step_rollbacks (run_id, "
+        "run_step_id, orchestration_step_id, snapshot_id, restore_id, status, "
+        "summary) VALUES (?,?,?,?,?,?,?)",
+        (run_id, run_step_id, orchestration_step_id, snapshot_id, restore_id,
+         status, summary))
+    conn.commit()
+    return cur.lastrowid
+
+
+def list_cross_project_orchestration_step_rollbacks(conn, run_id=None, limit=100):
+    if run_id is not None:
+        return conn.execute(
+            "SELECT * FROM cross_project_orchestration_step_rollbacks "
+            "WHERE run_id=? ORDER BY id DESC LIMIT ?", (run_id, limit)).fetchall()
+    return conn.execute(
+        "SELECT * FROM cross_project_orchestration_step_rollbacks "
+        "ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
+
+
+def save_cross_project_orchestration_report(
+        conn, run_id, generated_at, overall_status, summary, next_action,
+        steps_json, rollback_status_json, safety_notes_json) -> int:
+    cur = conn.execute(
+        "INSERT INTO cross_project_orchestration_reports (run_id, generated_at, "
+        "overall_status, summary, next_action, steps_json, rollback_status_json, "
+        "safety_notes_json) VALUES (?,?,?,?,?,?,?,?)",
+        (run_id, generated_at, overall_status, summary, next_action, steps_json,
+         rollback_status_json, safety_notes_json))
+    conn.commit()
+    return cur.lastrowid
+
+
+def get_cross_project_orchestration_report(conn, report_id):
+    return conn.execute(
+        "SELECT * FROM cross_project_orchestration_reports WHERE id=?",
+        (report_id,)).fetchone()
+
+
+def list_cross_project_orchestration_reports(conn, limit=50):
+    return conn.execute(
+        "SELECT * FROM cross_project_orchestration_reports ORDER BY id DESC LIMIT ?",
+        (limit,)).fetchall()
+
+
+def save_cross_project_orchestration_markdown_report(
+        conn, report_id, report_path, report_format, content_hash,
+        bytes_written) -> int:
+    cur = conn.execute(
+        "INSERT INTO cross_project_orchestration_markdown_reports "
+        "(report_id, report_path, report_format, content_hash, bytes_written) "
+        "VALUES (?,?,?,?,?)",
+        (report_id, report_path, report_format, content_hash, bytes_written))
+    conn.commit()
+    return cur.lastrowid
+
+
+def save_cross_project_orchestration_audit(
+        conn, generated_at, overall_status, total_checks, passed_checks,
+        warning_checks, failed_checks, blocked_checks, checks_json,
+        recommendations_json, safety_notes_json) -> int:
+    cur = conn.execute(
+        "INSERT INTO cross_project_orchestration_audits (generated_at, "
+        "overall_status, total_checks, passed_checks, warning_checks, "
+        "failed_checks, blocked_checks, checks_json, recommendations_json, "
+        "safety_notes_json) VALUES (?,?,?,?,?,?,?,?,?,?)",
+        (generated_at, overall_status, total_checks, passed_checks, warning_checks,
+         failed_checks, blocked_checks, checks_json, recommendations_json,
+         safety_notes_json))
+    conn.commit()
+    return cur.lastrowid
+
+
+def list_cross_project_orchestration_audits(conn, limit=20):
+    return conn.execute(
+        "SELECT * FROM cross_project_orchestration_audits ORDER BY id DESC LIMIT ?",
+        (limit,)).fetchall()
+
+
+def save_cross_project_orchestration_audit_markdown_report(
+        conn, audit_id, report_path, report_format, content_hash,
+        bytes_written) -> int:
+    cur = conn.execute(
+        "INSERT INTO cross_project_orchestration_audit_markdown_reports "
+        "(audit_id, report_path, report_format, content_hash, bytes_written) "
+        "VALUES (?,?,?,?,?)",
+        (audit_id, report_path, report_format, content_hash, bytes_written))
+    conn.commit()
+    return cur.lastrowid
+
+
+def save_cross_project_stage11_audit(
+        conn, generated_at, overall_status, total_checks, passed_checks,
+        warning_checks, failed_checks, blocked_checks, checks_json,
+        recommendations_json, stage12_readiness_json, safety_notes_json,
+        next_steps_json) -> int:
+    cur = conn.execute(
+        "INSERT INTO cross_project_stage11_audits (generated_at, overall_status, "
+        "total_checks, passed_checks, warning_checks, failed_checks, "
+        "blocked_checks, checks_json, recommendations_json, stage12_readiness_json, "
+        "safety_notes_json, next_steps_json) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+        (generated_at, overall_status, total_checks, passed_checks, warning_checks,
+         failed_checks, blocked_checks, checks_json, recommendations_json,
+         stage12_readiness_json, safety_notes_json, next_steps_json))
+    conn.commit()
+    return cur.lastrowid
+
+
+def list_cross_project_stage11_audits(conn, limit=20):
+    return conn.execute(
+        "SELECT * FROM cross_project_stage11_audits ORDER BY id DESC LIMIT ?",
+        (limit,)).fetchall()
+
+
+def save_cross_project_stage11_audit_markdown_report(
+        conn, stage11_audit_id, report_path, report_format, content_hash,
+        bytes_written) -> int:
+    cur = conn.execute(
+        "INSERT INTO cross_project_stage11_audit_markdown_reports "
+        "(stage11_audit_id, report_path, report_format, content_hash, bytes_written) "
+        "VALUES (?,?,?,?,?)",
+        (stage11_audit_id, report_path, report_format, content_hash, bytes_written))
+    conn.commit()
+    return cur.lastrowid

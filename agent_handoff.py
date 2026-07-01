@@ -40,6 +40,9 @@ REQUIRED_IGNORES = [
     "cross_project_execution_snapshot_reports/",
     "cross_project_execution_runtime_reports/",
     "cross_project_stage10_audit_reports/",
+    "cross_project_orchestration_reports/",
+    "cross_project_orchestration_audit_reports/",
+    "cross_project_stage11_audit_reports/",
 ]
 
 CORE_VERIFICATION = [
@@ -169,6 +172,19 @@ def build_handoff(repo_root="."):
     a("- Execute: `--execute-cross-project-command SESSION_ID --confirmation CONFIRMATION_ID --snapshot SNAPSHOT_ID --confirm-execution`")
     a("- Verify/outcome/audit: `--verify-cross-project-execution ATTEMPT_ID` -> `--record-cross-project-execution-outcome ATTEMPT_ID` -> `--cross-project-stage10-audit`")
     a("- Execution uses `terminal.run_command`; no alternate subprocess path, hidden model call, external job, auto-commit, push, branch creation, or batch execution.")
+    a("")
+    a("## Controlled Multi-Step Orchestration (Stage 11)")
+    a("")
+    a("Stage 11 coordinates multiple Stage 10 single-step executions while keeping")
+    a("Stage 10 as the only runtime execution layer. It adds orchestration plans,")
+    a("dry-runs, runs, step controls, one-step advancement, verification binding,")
+    a("rollback status, reports, and audits.")
+    a("")
+    a("- Plan/dry-run/run: `--plan-cross-project-orchestration SESSION_ID` -> `--dry-run-cross-project-orchestration PLAN_ID` -> `--start-cross-project-orchestration PLAN_ID --dry-run DRY_RUN_ID`")
+    a("- Controls: `--cross-project-orchestration-step-controls RUN_ID --step STEP_ID`")
+    a("- Advance one step: `--advance-cross-project-orchestration RUN_ID --step STEP_ID --confirmation CONFIRMATION_ID --snapshot SNAPSHOT_ID --confirm-execution`")
+    a("- Verify/report/audit: `--verify-cross-project-orchestration-step RUN_ID --step STEP_ID` -> `--cross-project-orchestration-report RUN_ID` -> `--cross-project-stage11-audit`")
+    a("- No parallel execution, automatic retry, automatic rollback, Git mutation, external job, hidden model call, or broader command allowlist.")
     a("")
     a("## Next Agent Checklist")
     a("")

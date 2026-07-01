@@ -1,3 +1,68 @@
+# Loop Engineering — Stage 11
+
+## What's new in 11 — Controlled Multi-Step Execution Orchestration
+
+Stage 11 coordinates multiple Stage 10 single-step executions without adding a
+new executor or broader permissions. It builds orchestration plans from prepared
+Stage 10 sessions, validates them, starts sequential runs, reports the next
+required Stage 10 controls, advances exactly one step per explicit command, and
+audits the orchestration metadata.
+
+Execution still belongs to Stage 10: every advanced step requires an approved
+Stage 10 confirmation, rollback snapshot, allowlisted command, confined cwd, and
+explicit `--confirm-execution`. Stage 11 does not add parallel execution, retry
+loops, Git mutation, external-agent jobs, hidden model calls, or automatic
+rollback.
+
+### 11.0-11.2 Orchestration plan, dry-run, and run
+
+```bash
+python3 main.py --plan-cross-project-orchestration SESSION_ID
+python3 main.py --cross-project-orchestration-plans
+python3 main.py --cross-project-orchestration-plan PLAN_ID
+
+python3 main.py --dry-run-cross-project-orchestration PLAN_ID
+python3 main.py --cross-project-orchestration-dry-runs
+python3 main.py --cross-project-orchestration-dry-run DRY_RUN_ID
+
+python3 main.py --start-cross-project-orchestration PLAN_ID --dry-run DRY_RUN_ID
+python3 main.py --cross-project-orchestration-runs
+python3 main.py --cross-project-orchestration-run RUN_ID
+```
+
+### 11.3-11.6 Controls, advancement, verification, rollback status
+
+```bash
+python3 main.py --cross-project-orchestration-step-controls RUN_ID --step STEP_ID
+python3 main.py --advance-cross-project-orchestration RUN_ID --step STEP_ID --confirmation CONFIRMATION_ID --snapshot SNAPSHOT_ID --confirm-execution
+python3 main.py --verify-cross-project-orchestration-step RUN_ID --step STEP_ID
+python3 main.py --cross-project-orchestration-rollback-status RUN_ID
+```
+
+### 11.7-11.9 Reports and audits
+
+```bash
+python3 main.py --cross-project-orchestration-report RUN_ID --save-report
+python3 main.py --cross-project-orchestration-audit --save-report
+python3 main.py --cross-project-stage11-audit --save-report
+```
+
+### Stage 11 tests
+
+```bash
+python3 -m unittest \
+  test_cross_project_orchestration_plans.py \
+  test_cross_project_orchestration_dry_run.py \
+  test_cross_project_orchestration_runs.py \
+  test_cross_project_orchestration_controls.py \
+  test_cross_project_orchestration_runtime.py \
+  test_cross_project_orchestration_verification.py \
+  test_cross_project_orchestration_rollback.py \
+  test_cross_project_orchestration_reports.py \
+  test_cross_project_orchestration_audit.py \
+  test_cross_project_stage11_audit.py
+```
+
 # Loop Engineering — Stage 10
 
 ## What's new in 10 — Controlled Cross-Project Execution
