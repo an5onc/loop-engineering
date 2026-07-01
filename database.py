@@ -1433,6 +1433,234 @@ CREATE TABLE IF NOT EXISTS stop_condition_results (
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (loop_id) REFERENCES loops(id)
 );
+
+-- ===================================================================== --
+-- Stage 7 — Multi-Project Operations                                     --
+-- ===================================================================== --
+
+CREATE TABLE IF NOT EXISTS project_safety_profiles (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    profile_name TEXT UNIQUE,
+    description TEXT,
+    default_allowed_write_paths_json TEXT,
+    default_protected_paths_json TEXT,
+    requires_explicit_approval INTEGER DEFAULT 1,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS registered_projects (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_key TEXT UNIQUE,
+    name TEXT,
+    root_path TEXT,
+    repo_url TEXT,
+    default_branch TEXT,
+    status TEXT,
+    safety_profile_name TEXT,
+    allowed_write_paths_json TEXT,
+    protected_paths_json TEXT,
+    labels_json TEXT,
+    notes TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS project_registry_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_key TEXT,
+    event_type TEXT,
+    detail TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS project_validation_reports (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_key TEXT,
+    generated_at TEXT,
+    overall_status TEXT,
+    total_checks INTEGER,
+    passed_checks INTEGER,
+    warning_checks INTEGER,
+    failed_checks INTEGER,
+    blocked_checks INTEGER,
+    root_exists INTEGER,
+    branch_metadata TEXT,
+    checks_json TEXT,
+    summary TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS multi_project_observatory_snapshots (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    generated_at TEXT,
+    summary_json TEXT,
+    projects_json TEXT,
+    filters_json TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS multi_project_observatory_reports (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    snapshot_id INTEGER NOT NULL,
+    report_path TEXT,
+    report_format TEXT,
+    content_hash TEXT,
+    bytes_written INTEGER,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (snapshot_id) REFERENCES multi_project_observatory_snapshots(id)
+);
+
+CREATE TABLE IF NOT EXISTS cross_project_work_plans (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    generated_at TEXT,
+    source_request TEXT,
+    included_project_keys_json TEXT,
+    excluded_project_keys_json TEXT,
+    dependency_notes_json TEXT,
+    required_approvals_json TEXT,
+    safety_blockers_json TEXT,
+    suggested_commands_json TEXT,
+    status TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS cross_project_work_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    plan_id INTEGER NOT NULL,
+    project_key TEXT,
+    description TEXT,
+    depends_on_json TEXT,
+    safety_notes_json TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (plan_id) REFERENCES cross_project_work_plans(id)
+);
+
+CREATE TABLE IF NOT EXISTS cross_project_plan_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    plan_id INTEGER NOT NULL,
+    event_type TEXT,
+    detail TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (plan_id) REFERENCES cross_project_work_plans(id)
+);
+
+CREATE TABLE IF NOT EXISTS cross_project_approvals (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    plan_id INTEGER NOT NULL,
+    status TEXT,
+    requested_at TEXT,
+    decided_at TEXT,
+    decided_by TEXT,
+    notes TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT,
+    FOREIGN KEY (plan_id) REFERENCES cross_project_work_plans(id)
+);
+
+CREATE TABLE IF NOT EXISTS cross_project_handoffs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    plan_id INTEGER NOT NULL,
+    approval_id INTEGER NOT NULL,
+    generated_at TEXT,
+    report_path TEXT,
+    report_format TEXT,
+    content_hash TEXT,
+    bytes_written INTEGER,
+    projects_json TEXT,
+    status TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (plan_id) REFERENCES cross_project_work_plans(id),
+    FOREIGN KEY (approval_id) REFERENCES cross_project_approvals(id)
+);
+
+CREATE TABLE IF NOT EXISTS cross_project_handoff_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    handoff_id INTEGER NOT NULL,
+    event_type TEXT,
+    detail TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (handoff_id) REFERENCES cross_project_handoffs(id)
+);
+
+CREATE TABLE IF NOT EXISTS multi_project_schedules (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    plan_id INTEGER NOT NULL,
+    approval_id INTEGER NOT NULL,
+    window TEXT,
+    status TEXT,
+    notes TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT,
+    FOREIGN KEY (plan_id) REFERENCES cross_project_work_plans(id),
+    FOREIGN KEY (approval_id) REFERENCES cross_project_approvals(id)
+);
+
+CREATE TABLE IF NOT EXISTS multi_project_schedule_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    schedule_id INTEGER NOT NULL,
+    event_type TEXT,
+    detail TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (schedule_id) REFERENCES multi_project_schedules(id)
+);
+
+CREATE TABLE IF NOT EXISTS multi_project_audits (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    generated_at TEXT,
+    overall_status TEXT,
+    total_checks INTEGER,
+    passed_checks INTEGER,
+    warning_checks INTEGER,
+    failed_checks INTEGER,
+    blocked_checks INTEGER,
+    sections_json TEXT,
+    recommendations_json TEXT,
+    stage8_readiness_json TEXT,
+    safety_notes_json TEXT,
+    next_steps_json TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS multi_project_audit_markdown_reports (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    audit_id INTEGER NOT NULL,
+    report_path TEXT,
+    report_format TEXT,
+    content_hash TEXT,
+    bytes_written INTEGER,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (audit_id) REFERENCES multi_project_audits(id)
+);
+
+CREATE TABLE IF NOT EXISTS multi_project_stage7_audits (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    generated_at TEXT,
+    overall_status TEXT,
+    total_checks INTEGER,
+    passed_checks INTEGER,
+    warning_checks INTEGER,
+    failed_checks INTEGER,
+    blocked_checks INTEGER,
+    sections_json TEXT,
+    recommendations_json TEXT,
+    stage8_readiness_json TEXT,
+    safety_notes_json TEXT,
+    next_steps_json TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS multi_project_stage7_audit_markdown_reports (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    stage7_audit_id INTEGER NOT NULL,
+    report_path TEXT,
+    report_format TEXT,
+    content_hash TEXT,
+    bytes_written INTEGER,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (stage7_audit_id) REFERENCES multi_project_stage7_audits(id)
+);
 """
 
 
@@ -4563,3 +4791,477 @@ def get_stop_condition_results(conn, loop_id) -> List[sqlite3.Row]:
     return conn.execute(
         "SELECT * FROM stop_condition_results WHERE loop_id=? ORDER BY id", (loop_id,)
     ).fetchall()
+
+
+# ===================================================================== #
+# Stage 7 — Multi-Project Operations                                     #
+# ===================================================================== #
+def _mp_now() -> str:
+    import datetime as _dt
+    return _dt.datetime.now().isoformat(timespec="seconds")
+
+
+# --- 7.0 Project registry ------------------------------------------------ #
+def save_project_safety_profile(conn, profile_name, description=None,
+                                default_allowed_write_paths_json=None,
+                                default_protected_paths_json=None,
+                                requires_explicit_approval=1) -> int:
+    now = _mp_now()
+    cur = conn.execute(
+        "INSERT INTO project_safety_profiles (profile_name, description, "
+        "default_allowed_write_paths_json, default_protected_paths_json, "
+        "requires_explicit_approval, updated_at) VALUES (?,?,?,?,?,?) "
+        "ON CONFLICT(profile_name) DO UPDATE SET description=excluded.description, "
+        "default_allowed_write_paths_json=excluded.default_allowed_write_paths_json, "
+        "default_protected_paths_json=excluded.default_protected_paths_json, "
+        "requires_explicit_approval=excluded.requires_explicit_approval, "
+        "updated_at=excluded.updated_at",
+        (profile_name, description, default_allowed_write_paths_json,
+         default_protected_paths_json, 1 if requires_explicit_approval else 0, now),
+    )
+    conn.commit()
+    return cur.lastrowid
+
+
+def get_project_safety_profile(conn, profile_name):
+    return conn.execute(
+        "SELECT * FROM project_safety_profiles WHERE profile_name=?",
+        (profile_name,)).fetchone()
+
+
+def list_project_safety_profiles(conn, limit=50):
+    return conn.execute(
+        "SELECT * FROM project_safety_profiles ORDER BY profile_name LIMIT ?",
+        (limit,)).fetchall()
+
+
+def register_project(conn, project_key, name, root_path, repo_url=None,
+                     default_branch=None, status="active",
+                     safety_profile_name=None, allowed_write_paths_json=None,
+                     protected_paths_json=None, labels_json=None,
+                     notes=None) -> int:
+    now = _mp_now()
+    cur = conn.execute(
+        "INSERT INTO registered_projects (project_key, name, root_path, repo_url, "
+        "default_branch, status, safety_profile_name, allowed_write_paths_json, "
+        "protected_paths_json, labels_json, notes, updated_at) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+        (project_key, name, root_path, repo_url, default_branch, status,
+         safety_profile_name, allowed_write_paths_json, protected_paths_json,
+         labels_json, notes, now),
+    )
+    conn.commit()
+    return cur.lastrowid
+
+
+def get_registered_project(conn, project_key):
+    return conn.execute(
+        "SELECT * FROM registered_projects WHERE project_key=?",
+        (project_key,)).fetchone()
+
+
+def get_registered_project_by_id(conn, project_id):
+    return conn.execute(
+        "SELECT * FROM registered_projects WHERE id=?", (project_id,)).fetchone()
+
+
+def list_registered_projects(conn, status=None, limit=200):
+    if status:
+        return conn.execute(
+            "SELECT * FROM registered_projects WHERE status=? ORDER BY project_key "
+            "LIMIT ?", (status, limit)).fetchall()
+    return conn.execute(
+        "SELECT * FROM registered_projects ORDER BY project_key LIMIT ?",
+        (limit,)).fetchall()
+
+
+def update_registered_project_status(conn, project_key, status) -> bool:
+    cur = conn.execute(
+        "UPDATE registered_projects SET status=?, updated_at=? WHERE project_key=?",
+        (status, _mp_now(), project_key))
+    conn.commit()
+    return cur.rowcount > 0
+
+
+def save_project_registry_event(conn, project_key, event_type, detail=None) -> int:
+    cur = conn.execute(
+        "INSERT INTO project_registry_events (project_key, event_type, detail) "
+        "VALUES (?,?,?)", (project_key, event_type, detail))
+    conn.commit()
+    return cur.lastrowid
+
+
+def list_project_registry_events(conn, project_key=None, limit=100):
+    if project_key:
+        return conn.execute(
+            "SELECT * FROM project_registry_events WHERE project_key=? "
+            "ORDER BY id DESC LIMIT ?", (project_key, limit)).fetchall()
+    return conn.execute(
+        "SELECT * FROM project_registry_events ORDER BY id DESC LIMIT ?",
+        (limit,)).fetchall()
+
+
+# --- 7.1 Project validation --------------------------------------------- #
+def save_project_validation_report(conn, project_key, generated_at, overall_status,
+                                   total_checks, passed_checks, warning_checks,
+                                   failed_checks, blocked_checks, root_exists,
+                                   branch_metadata, checks_json, summary) -> int:
+    cur = conn.execute(
+        "INSERT INTO project_validation_reports (project_key, generated_at, "
+        "overall_status, total_checks, passed_checks, warning_checks, "
+        "failed_checks, blocked_checks, root_exists, branch_metadata, "
+        "checks_json, summary) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+        (project_key, generated_at, overall_status, total_checks, passed_checks,
+         warning_checks, failed_checks, blocked_checks,
+         1 if root_exists else 0, branch_metadata, checks_json, summary))
+    conn.commit()
+    return cur.lastrowid
+
+
+def get_project_validation_report(conn, report_id):
+    return conn.execute(
+        "SELECT * FROM project_validation_reports WHERE id=?",
+        (report_id,)).fetchone()
+
+
+def list_project_validation_reports(conn, project_key=None, limit=50):
+    if project_key:
+        return conn.execute(
+            "SELECT * FROM project_validation_reports WHERE project_key=? "
+            "ORDER BY id DESC LIMIT ?", (project_key, limit)).fetchall()
+    return conn.execute(
+        "SELECT * FROM project_validation_reports ORDER BY id DESC LIMIT ?",
+        (limit,)).fetchall()
+
+
+def latest_project_validation_report(conn, project_key):
+    return conn.execute(
+        "SELECT * FROM project_validation_reports WHERE project_key=? "
+        "ORDER BY id DESC LIMIT 1", (project_key,)).fetchone()
+
+
+# --- 7.2 Multi-project observatory -------------------------------------- #
+def save_multi_project_observatory_snapshot(conn, generated_at, summary_json,
+                                            projects_json, filters_json) -> int:
+    cur = conn.execute(
+        "INSERT INTO multi_project_observatory_snapshots (generated_at, "
+        "summary_json, projects_json, filters_json) VALUES (?,?,?,?)",
+        (generated_at, summary_json, projects_json, filters_json))
+    conn.commit()
+    return cur.lastrowid
+
+
+def get_multi_project_observatory_snapshot(conn, snapshot_id):
+    return conn.execute(
+        "SELECT * FROM multi_project_observatory_snapshots WHERE id=?",
+        (snapshot_id,)).fetchone()
+
+
+def list_multi_project_observatory_snapshots(conn, limit=20):
+    return conn.execute(
+        "SELECT * FROM multi_project_observatory_snapshots ORDER BY id DESC LIMIT ?",
+        (limit,)).fetchall()
+
+
+def save_multi_project_observatory_report(conn, snapshot_id, report_path,
+                                          report_format, content_hash,
+                                          bytes_written) -> int:
+    cur = conn.execute(
+        "INSERT INTO multi_project_observatory_reports (snapshot_id, report_path, "
+        "report_format, content_hash, bytes_written) VALUES (?,?,?,?,?)",
+        (snapshot_id, report_path, report_format, content_hash, bytes_written))
+    conn.commit()
+    return cur.lastrowid
+
+
+def get_multi_project_observatory_report(conn, snapshot_id):
+    return conn.execute(
+        "SELECT * FROM multi_project_observatory_reports WHERE snapshot_id=? "
+        "ORDER BY id DESC LIMIT 1", (snapshot_id,)).fetchone()
+
+
+def list_multi_project_observatory_reports(conn, limit=20):
+    return conn.execute(
+        "SELECT * FROM multi_project_observatory_reports ORDER BY id DESC LIMIT ?",
+        (limit,)).fetchall()
+
+
+# --- 7.3 Cross-project planner ------------------------------------------ #
+def save_cross_project_work_plan(conn, generated_at, source_request,
+                                 included_project_keys_json,
+                                 excluded_project_keys_json, dependency_notes_json,
+                                 required_approvals_json, safety_blockers_json,
+                                 suggested_commands_json, status) -> int:
+    cur = conn.execute(
+        "INSERT INTO cross_project_work_plans (generated_at, source_request, "
+        "included_project_keys_json, excluded_project_keys_json, "
+        "dependency_notes_json, required_approvals_json, safety_blockers_json, "
+        "suggested_commands_json, status, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
+        (generated_at, source_request, included_project_keys_json,
+         excluded_project_keys_json, dependency_notes_json, required_approvals_json,
+         safety_blockers_json, suggested_commands_json, status, generated_at))
+    conn.commit()
+    return cur.lastrowid
+
+
+def get_cross_project_work_plan(conn, plan_id):
+    return conn.execute(
+        "SELECT * FROM cross_project_work_plans WHERE id=?", (plan_id,)).fetchone()
+
+
+def list_cross_project_work_plans(conn, limit=50):
+    return conn.execute(
+        "SELECT * FROM cross_project_work_plans ORDER BY id DESC LIMIT ?",
+        (limit,)).fetchall()
+
+
+def update_cross_project_work_plan_status(conn, plan_id, status) -> bool:
+    cur = conn.execute(
+        "UPDATE cross_project_work_plans SET status=?, updated_at=? WHERE id=?",
+        (status, _mp_now(), plan_id))
+    conn.commit()
+    return cur.rowcount > 0
+
+
+def save_cross_project_work_item(conn, plan_id, project_key, description,
+                                 depends_on_json, safety_notes_json) -> int:
+    cur = conn.execute(
+        "INSERT INTO cross_project_work_items (plan_id, project_key, description, "
+        "depends_on_json, safety_notes_json) VALUES (?,?,?,?,?)",
+        (plan_id, project_key, description, depends_on_json, safety_notes_json))
+    conn.commit()
+    return cur.lastrowid
+
+
+def list_cross_project_work_items(conn, plan_id):
+    return conn.execute(
+        "SELECT * FROM cross_project_work_items WHERE plan_id=? ORDER BY id",
+        (plan_id,)).fetchall()
+
+
+def save_cross_project_plan_event(conn, plan_id, event_type, detail=None) -> int:
+    cur = conn.execute(
+        "INSERT INTO cross_project_plan_events (plan_id, event_type, detail) "
+        "VALUES (?,?,?)", (plan_id, event_type, detail))
+    conn.commit()
+    return cur.lastrowid
+
+
+def list_cross_project_plan_events(conn, plan_id, limit=100):
+    return conn.execute(
+        "SELECT * FROM cross_project_plan_events WHERE plan_id=? "
+        "ORDER BY id DESC LIMIT ?", (plan_id, limit)).fetchall()
+
+
+# --- 7.4 Cross-project approvals ---------------------------------------- #
+def save_cross_project_approval(conn, plan_id, status, requested_at) -> int:
+    cur = conn.execute(
+        "INSERT INTO cross_project_approvals (plan_id, status, requested_at, "
+        "updated_at) VALUES (?,?,?,?)",
+        (plan_id, status, requested_at, requested_at))
+    conn.commit()
+    return cur.lastrowid
+
+
+def get_cross_project_approval(conn, approval_id):
+    return conn.execute(
+        "SELECT * FROM cross_project_approvals WHERE id=?",
+        (approval_id,)).fetchone()
+
+
+def list_cross_project_approvals(conn, limit=50):
+    return conn.execute(
+        "SELECT * FROM cross_project_approvals ORDER BY id DESC LIMIT ?",
+        (limit,)).fetchall()
+
+
+def update_cross_project_approval(conn, approval_id, status, decided_at=None,
+                                  decided_by=None, notes=None) -> bool:
+    cur = conn.execute(
+        "UPDATE cross_project_approvals SET status=?, decided_at=?, decided_by=?, "
+        "notes=?, updated_at=? WHERE id=?",
+        (status, decided_at, decided_by, notes, _mp_now(), approval_id))
+    conn.commit()
+    return cur.rowcount > 0
+
+
+# --- 7.5 Cross-project handoffs ----------------------------------------- #
+def save_cross_project_handoff(conn, plan_id, approval_id, generated_at,
+                               report_path, report_format, content_hash,
+                               bytes_written, projects_json, status) -> int:
+    cur = conn.execute(
+        "INSERT INTO cross_project_handoffs (plan_id, approval_id, generated_at, "
+        "report_path, report_format, content_hash, bytes_written, projects_json, "
+        "status) VALUES (?,?,?,?,?,?,?,?,?)",
+        (plan_id, approval_id, generated_at, report_path, report_format,
+         content_hash, bytes_written, projects_json, status))
+    conn.commit()
+    return cur.lastrowid
+
+
+def get_cross_project_handoff(conn, handoff_id):
+    return conn.execute(
+        "SELECT * FROM cross_project_handoffs WHERE id=?", (handoff_id,)).fetchone()
+
+
+def list_cross_project_handoffs(conn, limit=50):
+    return conn.execute(
+        "SELECT * FROM cross_project_handoffs ORDER BY id DESC LIMIT ?",
+        (limit,)).fetchall()
+
+
+def save_cross_project_handoff_event(conn, handoff_id, event_type, detail=None) -> int:
+    cur = conn.execute(
+        "INSERT INTO cross_project_handoff_events (handoff_id, event_type, detail) "
+        "VALUES (?,?,?)", (handoff_id, event_type, detail))
+    conn.commit()
+    return cur.lastrowid
+
+
+def list_cross_project_handoff_events(conn, handoff_id, limit=100):
+    return conn.execute(
+        "SELECT * FROM cross_project_handoff_events WHERE handoff_id=? "
+        "ORDER BY id DESC LIMIT ?", (handoff_id, limit)).fetchall()
+
+
+# --- 7.6 Multi-project scheduling --------------------------------------- #
+def save_multi_project_schedule(conn, plan_id, approval_id, window, status,
+                                notes=None) -> int:
+    now = _mp_now()
+    cur = conn.execute(
+        "INSERT INTO multi_project_schedules (plan_id, approval_id, window, "
+        "status, notes, updated_at) VALUES (?,?,?,?,?,?)",
+        (plan_id, approval_id, window, status, notes, now))
+    conn.commit()
+    return cur.lastrowid
+
+
+def get_multi_project_schedule(conn, schedule_id):
+    return conn.execute(
+        "SELECT * FROM multi_project_schedules WHERE id=?",
+        (schedule_id,)).fetchone()
+
+
+def list_multi_project_schedules(conn, limit=50):
+    return conn.execute(
+        "SELECT * FROM multi_project_schedules ORDER BY id DESC LIMIT ?",
+        (limit,)).fetchall()
+
+
+def update_multi_project_schedule_status(conn, schedule_id, status) -> bool:
+    cur = conn.execute(
+        "UPDATE multi_project_schedules SET status=?, updated_at=? WHERE id=?",
+        (status, _mp_now(), schedule_id))
+    conn.commit()
+    return cur.rowcount > 0
+
+
+def save_multi_project_schedule_event(conn, schedule_id, event_type, detail=None) -> int:
+    cur = conn.execute(
+        "INSERT INTO multi_project_schedule_events (schedule_id, event_type, detail) "
+        "VALUES (?,?,?)", (schedule_id, event_type, detail))
+    conn.commit()
+    return cur.lastrowid
+
+
+def list_multi_project_schedule_events(conn, schedule_id, limit=100):
+    return conn.execute(
+        "SELECT * FROM multi_project_schedule_events WHERE schedule_id=? "
+        "ORDER BY id DESC LIMIT ?", (schedule_id, limit)).fetchall()
+
+
+# --- 7.7 Multi-project audit trail -------------------------------------- #
+def save_multi_project_audit(conn, generated_at, overall_status, total_checks,
+                             passed_checks, warning_checks, failed_checks,
+                             blocked_checks, sections_json, recommendations_json,
+                             stage8_readiness_json, safety_notes_json,
+                             next_steps_json) -> int:
+    cur = conn.execute(
+        "INSERT INTO multi_project_audits (generated_at, overall_status, "
+        "total_checks, passed_checks, warning_checks, failed_checks, "
+        "blocked_checks, sections_json, recommendations_json, "
+        "stage8_readiness_json, safety_notes_json, next_steps_json) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+        (generated_at, overall_status, total_checks, passed_checks, warning_checks,
+         failed_checks, blocked_checks, sections_json, recommendations_json,
+         stage8_readiness_json, safety_notes_json, next_steps_json))
+    conn.commit()
+    return cur.lastrowid
+
+
+def get_multi_project_audit(conn, audit_id):
+    return conn.execute(
+        "SELECT * FROM multi_project_audits WHERE id=?", (audit_id,)).fetchone()
+
+
+def list_multi_project_audits(conn, limit=20):
+    return conn.execute(
+        "SELECT * FROM multi_project_audits ORDER BY id DESC LIMIT ?",
+        (limit,)).fetchall()
+
+
+def save_multi_project_audit_markdown_report(conn, audit_id, report_path,
+                                             report_format, content_hash,
+                                             bytes_written) -> int:
+    cur = conn.execute(
+        "INSERT INTO multi_project_audit_markdown_reports (audit_id, report_path, "
+        "report_format, content_hash, bytes_written) VALUES (?,?,?,?,?)",
+        (audit_id, report_path, report_format, content_hash, bytes_written))
+    conn.commit()
+    return cur.lastrowid
+
+
+def get_multi_project_audit_markdown_report(conn, audit_id):
+    return conn.execute(
+        "SELECT * FROM multi_project_audit_markdown_reports WHERE audit_id=? "
+        "ORDER BY id DESC LIMIT 1", (audit_id,)).fetchone()
+
+
+# --- 7.9 Final Stage 7 audit -------------------------------------------- #
+def save_multi_project_stage7_audit(conn, generated_at, overall_status,
+                                    total_checks, passed_checks, warning_checks,
+                                    failed_checks, blocked_checks, sections_json,
+                                    recommendations_json, stage8_readiness_json,
+                                    safety_notes_json, next_steps_json) -> int:
+    cur = conn.execute(
+        "INSERT INTO multi_project_stage7_audits (generated_at, overall_status, "
+        "total_checks, passed_checks, warning_checks, failed_checks, "
+        "blocked_checks, sections_json, recommendations_json, "
+        "stage8_readiness_json, safety_notes_json, next_steps_json) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+        (generated_at, overall_status, total_checks, passed_checks, warning_checks,
+         failed_checks, blocked_checks, sections_json, recommendations_json,
+         stage8_readiness_json, safety_notes_json, next_steps_json))
+    conn.commit()
+    return cur.lastrowid
+
+
+def get_multi_project_stage7_audit(conn, audit_id):
+    return conn.execute(
+        "SELECT * FROM multi_project_stage7_audits WHERE id=?",
+        (audit_id,)).fetchone()
+
+
+def list_multi_project_stage7_audits(conn, limit=20):
+    return conn.execute(
+        "SELECT * FROM multi_project_stage7_audits ORDER BY id DESC LIMIT ?",
+        (limit,)).fetchall()
+
+
+def save_multi_project_stage7_audit_markdown_report(conn, stage7_audit_id,
+                                                    report_path, report_format,
+                                                    content_hash,
+                                                    bytes_written) -> int:
+    cur = conn.execute(
+        "INSERT INTO multi_project_stage7_audit_markdown_reports (stage7_audit_id, "
+        "report_path, report_format, content_hash, bytes_written) "
+        "VALUES (?,?,?,?,?)",
+        (stage7_audit_id, report_path, report_format, content_hash, bytes_written))
+    conn.commit()
+    return cur.lastrowid
+
+
+def get_multi_project_stage7_audit_markdown_report(conn, audit_id):
+    return conn.execute(
+        "SELECT * FROM multi_project_stage7_audit_markdown_reports "
+        "WHERE stage7_audit_id=? ORDER BY id DESC LIMIT 1", (audit_id,)).fetchone()

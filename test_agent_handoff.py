@@ -17,6 +17,8 @@ class AgentHandoffTests(unittest.TestCase):
             self.assertIn("python3 -m py_compile *.py", content)
             self.assertIn("python3 audit_hotfix.py", content)
             self.assertIn("Do not commit runtime artifacts", content)
+            self.assertIn("Multi-Project Operations", content)
+            self.assertIn("--plan-cross-project-work", content)
 
     def test_check_requires_runtime_artifacts_ignored(self):
         import agent_handoff

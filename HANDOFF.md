@@ -1,6 +1,6 @@
 # Loop Engineering Agent Handoff
 
-- Generated at: 2026-06-29T16:12:32
+- Generated at: 2026-06-30T09:01:46
 - Branch: `main`
 - Remote: `https://github.com/an5onc/loop-engineering.git`
 
@@ -46,6 +46,28 @@ These are intentionally local-only and ignored:
 - `external_batch_reports/`
 - `loop_improvement_reports/`
 - `loop_improvement_review_reports/`
+- `multi_project_observatory_reports/`
+- `cross_project_handoff_packets/`
+- `multi_project_audit_reports/`
+- `multi_project_stage7_audit_reports/`
+
+## Multi-Project Operations (Stage 7)
+
+Loop Engineering can register and operate across multiple projects. This
+layer is metadata-only and fail-closed: it performs no hidden writes, no
+hidden command/model execution, and no cross-project mutation without an
+explicit approved approval.
+
+- Register / inspect: `--register-project KEY --root PATH`, `--projects`, `--project KEY`
+- Validate: `--validate-projects`, `--project-validation-reports`
+- Observe (read-only): `--multi-project-observatory [--save-report]`
+- Plan -> approve -> handoff/schedule:
+  `--plan-cross-project-work "TASK"` -> `--request-cross-project-approval PLAN_ID`
+  -> `--set-cross-project-approval APPROVAL_ID approved`
+  -> `--handoff-cross-project-plan PLAN_ID --approval APPROVAL_ID`
+  -> `--schedule-cross-project-plan PLAN_ID --approval APPROVAL_ID --window manual`
+- Audit: `--multi-project-audit`, `--multi-project-stage7-audit [--save-report]`
+- A handoff or schedule is created only when a valid approved approval exists.
 
 ## Next Agent Checklist
 

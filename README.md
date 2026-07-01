@@ -1,4 +1,172 @@
-# Loop Engineering — Stage 3.8
+# Loop Engineering — Stage 7
+
+## What's new in 7 — Multi-Project Operations
+
+Stage 7 adds a **safe, metadata-only multi-project operations layer**. Loop
+Engineering can now register multiple projects, inspect their health, plan
+cross-project work, gate it behind explicit approvals, produce safe
+implementation handoffs, record scheduling intent, and audit the whole
+subsystem — all **without** hidden writes, hidden command execution, hidden
+model calls, or cross-project mutation without explicit approval.
+
+### Safety model (the rules Stage 7 never breaks)
+
+- **Metadata-only.** Registry, validation, observatory, planning, approvals,
+  handoffs, scheduling, and audits read SQLite metadata and small git ref
+  pointers (`<root>/.git/HEAD`). They never read project file *contents*.
+- **No hidden execution.** No commands are run, no models/Ollama are called, and
+  no loops / `command_results` / `external_agent_jobs` rows are created. Suggested
+  commands are emitted as **text** for a human to run manually.
+- **No cross-project writes.** Nothing in Stage 7 writes to a registered
+  project's root. The only writes are local Stage 7 metadata rows and generated
+  Markdown reports/packets under ignored directories.
+- **Fail closed.** A cross-project handoff or schedule is created **only** when a
+  valid `approved` approval that references the same plan exists. Rejected,
+  cancelled, expired, pending, or mismatched approvals are refused.
+- **OLLAMA-independent.** Every Stage 7 metadata command exits 0 even with an
+  invalid `OLLAMA_HOST`.
+
+### Project registry (7.0)
+
+Register projects and track their lifecycle. Roots are resolved to absolute
+realpaths, must exist, must not sit inside protected system paths, and duplicate
+keys are rejected. Status is one of `active | paused | archived | blocked`.
+
+```bash
+python3 main.py --register-project myapp --root /abs/path/to/myapp --repo https://github.com/me/myapp.git --branch main
+python3 main.py --projects
+python3 main.py --project myapp
+python3 main.py --set-project-status myapp paused
+python3 main.py --project-registry-summary
+```
+
+### Project workspace validation (7.1)
+
+Safe, read-only validation: root exists, `.git` present when a `repo_url` is set,
+branch metadata read from `.git/HEAD`, roots don't overlap other registered
+roots, roots aren't inside protected/system paths, and allowed/protected paths
+stay within the root. Stale/missing roots produce **warnings, not crashes**.
+
+```bash
+python3 main.py --validate-project myapp
+python3 main.py --validate-projects
+python3 main.py --project-validation-reports
+python3 main.py --project-validation-report REPORT_ID
+```
+
+### Multi-project observatory (7.2)
+
+Read-only dashboard across all registered projects: counts by status, per-project
+latest validation status, best-effort loop/external-job counts (from local DB
+metadata), stale projects, and projects needing attention. `--save-report` writes
+a Markdown snapshot under `multi_project_observatory_reports/`.
+
+```bash
+python3 main.py --multi-project-observatory
+python3 main.py --multi-project-observatory --save-report
+python3 main.py --multi-project-snapshots
+python3 main.py --multi-project-snapshot SNAPSHOT_ID
+```
+
+### Cross-project work planner (7.3)
+
+Deterministic, plan-only. Includes `active` projects, excludes the rest, detects
+structural dependencies (overlapping roots), lists required approvals and safety
+blockers, and emits suggested manual commands. Status is one of
+`proposed | blocked | approved_for_handoff | cancelled`.
+
+```bash
+python3 main.py --plan-cross-project-work "Review all registered projects for safety drift"
+python3 main.py --cross-project-plans
+python3 main.py --cross-project-plan PLAN_ID
+python3 main.py --set-cross-project-plan-status PLAN_ID approved_for_handoff
+```
+
+### Cross-project approval gates (7.4)
+
+Explicit approval metadata. An approval must reference a valid plan; only an
+`approved` approval is usable downstream. Statuses: `pending | approved |
+rejected | expired | cancelled`.
+
+```bash
+python3 main.py --request-cross-project-approval PLAN_ID
+python3 main.py --cross-project-approvals
+python3 main.py --cross-project-approval APPROVAL_ID
+python3 main.py --set-cross-project-approval APPROVAL_ID approved
+```
+
+### Cross-project handoff packets (7.5)
+
+Builds a human-readable implementation packet **only** for an approved plan.
+The packet includes the plan summary, projects involved, per-project safety
+profile (protected path **names only** — contents are never read), explicit
+non-goals, required verification commands, a completion-response JSON template,
+resume instructions, and a protected-content warning. Packets are written under
+`cross_project_handoff_packets/`.
+
+```bash
+python3 main.py --handoff-cross-project-plan PLAN_ID --approval APPROVAL_ID
+python3 main.py --cross-project-handoffs
+python3 main.py --cross-project-handoff HANDOFF_ID
+```
+
+### Controlled scheduling metadata (7.6)
+
+Scheduling **intent only** — no timers, no daemon, no auto-run. A schedule can
+only be created for a plan with a valid `approved` approval. Status changes
+update metadata and never start work. Statuses: `active | paused | cancelled |
+completed`.
+
+```bash
+python3 main.py --schedule-cross-project-plan PLAN_ID --approval APPROVAL_ID --window "manual"
+python3 main.py --multi-project-schedules
+python3 main.py --multi-project-schedule SCHEDULE_ID
+python3 main.py --set-multi-project-schedule-status SCHEDULE_ID completed
+```
+
+### Multi-project audit trail (7.7)
+
+Summarizes registry, validation, observatory, planning, approvals, handoffs,
+schedules, a safety baseline, and Stage 8 readiness, with optional Markdown
+reports under `multi_project_audit_reports/`. It also verifies referential
+integrity (e.g. every handoff/schedule references an approved approval).
+
+```bash
+python3 main.py --multi-project-audit
+python3 main.py --multi-project-audit --save-report
+python3 main.py --multi-project-audits
+python3 main.py --multi-project-audit-show AUDIT_ID
+```
+
+### Final Stage 7 audit (7.9)
+
+Structurally verifies all Stage 7 modules exist and import, all Stage 7 tables
+exist, all list/show commands are wired, the safety baseline holds (no hidden
+execution, no Ollama dependency, no cross-project writes, no loop/command/job
+rows created, no protected content reads), and reports **Stage 8 readiness
+yes/no**. Reports are written under `multi_project_stage7_audit_reports/`.
+
+```bash
+python3 main.py --multi-project-stage7-audit
+python3 main.py --multi-project-stage7-audit --save-report
+python3 main.py --multi-project-stage7-audits
+python3 main.py --multi-project-stage7-audit-show latest
+```
+
+### Stage 7 tests
+
+```bash
+python3 -m unittest \
+  test_multi_project_registry.py \
+  test_multi_project_validation.py \
+  test_multi_project_observatory.py \
+  test_cross_project_planner.py \
+  test_cross_project_approvals.py \
+  test_cross_project_handoff.py \
+  test_multi_project_scheduling.py \
+  test_multi_project_audit.py \
+  test_multi_project_stage7_audit.py
+```
 
 ## What's new in 3.8 — External Agent Batch Reports
 

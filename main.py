@@ -59,6 +59,15 @@ import reports
 import stage3_cleanup
 import task_intake
 import workspace_profiles
+import multi_project_registry
+import multi_project_validation
+import multi_project_observatory
+import cross_project_planner
+import cross_project_approvals
+import cross_project_handoff
+import multi_project_scheduling
+import multi_project_audit
+import multi_project_stage7_audit
 from loop_engine import LoopEngine
 
 USAGE = """Loop Engineering — orchestrates local Ollama models in a safe
@@ -187,6 +196,32 @@ COMMANDS:
   --set-external-job-labels JOB_ID a,b,c
   --set-external-job-notes JOB_ID "notes"
   (job creation flags: --job-priority P  --job-labels a,b  --job-notes "...")
+
+MULTI-PROJECT OPERATIONS (Stage 7, metadata-only, no cross-project writes):
+  --projects                                          list registered projects
+  --project PROJECT_KEY                               show one project
+  --register-project KEY --root PATH [--repo URL] [--branch B] [--name N] [--safety-profile P]
+  --set-project-status KEY active|paused|archived|blocked
+  --project-registry-summary
+  --validate-project PROJECT_KEY / --validate-projects
+  --project-validation-reports / --project-validation-report REPORT_ID
+  --multi-project-observatory [--save-report]
+  --multi-project-snapshots / --multi-project-snapshot SNAPSHOT_ID
+  --plan-cross-project-work "TASK"
+  --cross-project-plans / --cross-project-plan PLAN_ID
+  --set-cross-project-plan-status PLAN_ID proposed|blocked|approved_for_handoff|cancelled
+  --request-cross-project-approval PLAN_ID
+  --cross-project-approvals / --cross-project-approval APPROVAL_ID
+  --set-cross-project-approval APPROVAL_ID approved|rejected|cancelled
+  --handoff-cross-project-plan PLAN_ID --approval APPROVAL_ID
+  --cross-project-handoffs / --cross-project-handoff HANDOFF_ID
+  --schedule-cross-project-plan PLAN_ID --approval APPROVAL_ID --window "manual"
+  --multi-project-schedules / --multi-project-schedule SCHEDULE_ID
+  --set-multi-project-schedule-status SCHEDULE_ID active|paused|cancelled|completed
+  --multi-project-audit [--save-report]
+  --multi-project-audits / --multi-project-audit-show AUDIT_ID
+  --multi-project-stage7-audit [--save-report]
+  --multi-project-stage7-audits / --multi-project-stage7-audit-show AUDIT_ID|latest
   --help, -h                  show this help
 
 Resume is preferred over --import-external-completion (kept for compatibility).
@@ -8322,6 +8357,831 @@ def _cmd_help() -> int:
     return 0
 
 
+# ===================================================================== #
+# Stage 7 — Multi-Project Operations                                     #
+# ===================================================================== #
+def _print_registered_project(project) -> None:
+    print(f"project_key   : {project.project_key}")
+    print(f"name          : {project.name}")
+    print(f"status        : {project.status}")
+    print(f"root_path     : {project.root_path}")
+    print(f"repo_url      : {project.repo_url or '(none)'}")
+    print(f"default_branch: {project.default_branch or '(none)'}")
+    print(f"safety profile: {project.safety_profile_name or '(none)'}")
+    print(f"allowed writes: {project.allowed_write_paths or '(none)'}")
+    print(f"protected     : {project.protected_paths or '(none)'}")
+    print(f"labels        : {project.labels or '(none)'}")
+    print(f"notes         : {project.notes or '(none)'}")
+    print(f"created_at    : {project.created_at}")
+    print(f"updated_at    : {project.updated_at}")
+
+
+def _cmd_projects() -> int:
+    conn = database.init_db()
+    registry = multi_project_registry.ProjectRegistry(conn)
+    projects = registry.list_projects()
+    _rule(f"REGISTERED PROJECTS ({len(projects)})")
+    if not projects:
+        print("(none) — register with: python3 main.py --register-project KEY --root PATH")
+        return 0
+    for project in projects:
+        print(f"- {project.project_key}  [{project.status}]  {project.root_path}")
+        if project.repo_url:
+            print(f"    repo: {project.repo_url}  branch: {project.default_branch or '(none)'}")
+    return 0
+
+
+def _cmd_project(args) -> int:
+    if not args:
+        print("ERROR: --project needs a PROJECT_KEY", file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    registry = multi_project_registry.ProjectRegistry(conn)
+    project = registry.get_project(args[0])
+    if project is None:
+        print(f"ERROR: no project registered with key: {args[0]}", file=sys.stderr)
+        return 1
+    _rule(f"PROJECT {project.project_key}")
+    _print_registered_project(project)
+    return 0
+
+
+def _cmd_register_project(args) -> int:
+    if not args or args[0].startswith("--"):
+        print("ERROR: --register-project needs a PROJECT_KEY", file=sys.stderr)
+        return 1
+    project_key = args[0]
+    root = _flag_val(args, "--root")
+    if not root:
+        print("ERROR: --register-project requires --root PATH", file=sys.stderr)
+        return 1
+    repo = _flag_val(args, "--repo")
+    branch = _flag_val(args, "--branch") or "main"
+    name = _flag_val(args, "--name")
+    profile = _flag_val(args, "--safety-profile")
+    conn = database.init_db()
+    registry = multi_project_registry.ProjectRegistry(conn)
+    try:
+        project = registry.register_project(
+            project_key, root, name=name, repo_url=repo, default_branch=branch,
+            safety_profile_name=profile)
+    except ValueError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    _rule(f"REGISTERED PROJECT {project.project_key}")
+    _print_registered_project(project)
+    return 0
+
+
+def _cmd_set_project_status(args) -> int:
+    if len(args) < 2:
+        print("ERROR: --set-project-status needs PROJECT_KEY and STATUS",
+              file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    registry = multi_project_registry.ProjectRegistry(conn)
+    try:
+        project = registry.set_status(args[0], args[1])
+    except ValueError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    print(f"project {project.project_key} status -> {project.status}")
+    return 0
+
+
+def _cmd_project_registry_summary() -> int:
+    conn = database.init_db()
+    registry = multi_project_registry.ProjectRegistry(conn)
+    summary = registry.summary()
+    _rule("PROJECT REGISTRY SUMMARY")
+    print(f"total   : {summary.total}")
+    print(f"active  : {summary.active}")
+    print(f"paused  : {summary.paused}")
+    print(f"archived: {summary.archived}")
+    print(f"blocked : {summary.blocked}")
+    _rule("BY STATUS")
+    for status, count in summary.by_status.items():
+        print(f"- {status}: {count}")
+    return 0
+
+
+def _print_validation_report(report) -> None:
+    print(f"project_key   : {report.project_key}")
+    print(f"generated_at  : {report.generated_at}")
+    print(f"overall_status: {report.overall_status}")
+    print(f"root_exists   : {report.root_exists}")
+    print(f"branch        : {report.branch_metadata or '(none)'}")
+    print(f"checks        : {report.total_checks} "
+          f"(pass={report.passed_checks} warn={report.warning_checks} "
+          f"fail={report.failed_checks} blocked={report.blocked_checks})")
+    for check in report.checks:
+        print(f"  - {check.status}: {check.name}")
+        print(f"      {check.message}")
+
+
+def _cmd_validate_project(args) -> int:
+    if not args:
+        print("ERROR: --validate-project needs a PROJECT_KEY", file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    validator = multi_project_validation.ProjectValidator(conn)
+    try:
+        report = validator.validate_project(args[0])
+    except ValueError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    _rule(f"PROJECT VALIDATION — {report.project_key}")
+    _print_validation_report(report)
+    return 0
+
+
+def _cmd_validate_projects() -> int:
+    conn = database.init_db()
+    validator = multi_project_validation.ProjectValidator(conn)
+    reports = validator.validate_all()
+    _rule(f"PROJECT VALIDATION (ALL) — {len(reports)} project(s)")
+    if not reports:
+        print("(no registered projects)")
+        return 0
+    for report in reports:
+        print(f"- {report.project_key}: {report.overall_status} "
+              f"(report #{report.id})")
+    return 0
+
+
+def _cmd_project_validation_reports(args) -> int:
+    conn = database.init_db()
+    key = _flag_val(args, "--project") if "--project" in args else None
+    rows = database.list_project_validation_reports(conn, project_key=key)
+    _rule(f"PROJECT VALIDATION REPORTS ({len(rows)})")
+    if not rows:
+        print("(none)")
+        return 0
+    for row in rows:
+        print(f"#{row['id']}  {row['project_key']}  {row['generated_at']}  "
+              f"status={row['overall_status']}")
+    return 0
+
+
+def _cmd_project_validation_report(args) -> int:
+    if not args:
+        print("ERROR: --project-validation-report needs a REPORT_ID", file=sys.stderr)
+        return 1
+    try:
+        report_id = int(args[0])
+    except (TypeError, ValueError):
+        print("ERROR: REPORT_ID must be an integer", file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    row = database.get_project_validation_report(conn, report_id)
+    if row is None:
+        print(f"ERROR: no validation report {report_id}", file=sys.stderr)
+        return 1
+    report = multi_project_validation.report_from_row(row)
+    _rule(f"PROJECT VALIDATION REPORT #{report.id}")
+    _print_validation_report(report)
+    return 0
+
+
+def _print_observatory_snapshot(snapshot, snapshot_id=None, report_path=None) -> None:
+    summary = snapshot.summary
+    _rule("MULTI-PROJECT OBSERVATORY")
+    if snapshot_id is not None:
+        print(f"snapshot id      : {snapshot_id}")
+    if report_path:
+        print(f"markdown report  : {report_path}")
+    print(f"generated_at     : {summary.get('generated_at', snapshot.generated_at)}")
+    print(f"total projects   : {summary.get('total_projects', 0)}")
+    print(f"active           : {summary.get('active', 0)}")
+    print(f"paused           : {summary.get('paused', 0)}")
+    print(f"archived         : {summary.get('archived', 0)}")
+    print(f"blocked          : {summary.get('blocked', 0)}")
+    print(f"stale            : {summary.get('stale_count', 0)}")
+    print(f"needs attention  : {summary.get('needs_attention_count', 0)}")
+    _rule("PROJECTS")
+    if not snapshot.projects:
+        print("(none registered)")
+    for project in snapshot.projects:
+        print(f"- {project.get('project_key')} [{project.get('status')}] "
+              f"validation={project.get('latest_validation_status')} "
+              f"loops={project.get('loop_count')} "
+              f"jobs={project.get('external_job_count')} "
+              f"attention={project.get('needs_attention')}")
+        if project.get("attention_reasons"):
+            print(f"    reasons: {', '.join(project['attention_reasons'])}")
+
+
+def _cmd_multi_project_observatory(args) -> int:
+    conn = database.init_db()
+    observatory = multi_project_observatory.MultiProjectObservatory(conn)
+    snapshot = observatory.build_snapshot()
+    snapshot_id = None
+    report_path = None
+    if "--save-report" in args:
+        snapshot_id = observatory.save_snapshot(snapshot)
+        report_path = observatory.save_report(snapshot_id).report_path
+    _print_observatory_snapshot(snapshot, snapshot_id=snapshot_id,
+                                report_path=report_path)
+    return 0
+
+
+def _cmd_multi_project_snapshots(args) -> int:
+    conn = database.init_db()
+    rows = database.list_multi_project_observatory_snapshots(conn)
+    _rule(f"MULTI-PROJECT OBSERVATORY SNAPSHOTS ({len(rows)})")
+    if not rows:
+        print("(none) — run: python3 main.py --multi-project-observatory --save-report")
+        return 0
+    for row in rows:
+        md = database.get_multi_project_observatory_report(conn, row["id"])
+        print(f"#{row['id']}  {row['generated_at']}")
+        if md is not None:
+            print(f"    markdown: {md['report_path']}")
+    return 0
+
+
+def _cmd_multi_project_snapshot(args) -> int:
+    if not args:
+        print("ERROR: --multi-project-snapshot needs a SNAPSHOT_ID", file=sys.stderr)
+        return 1
+    try:
+        snapshot_id = int(args[0])
+    except (TypeError, ValueError):
+        print("ERROR: SNAPSHOT_ID must be an integer", file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    observatory = multi_project_observatory.MultiProjectObservatory(conn)
+    snapshot = observatory.get_snapshot(snapshot_id)
+    if snapshot is None:
+        print(f"ERROR: no observatory snapshot {snapshot_id}", file=sys.stderr)
+        return 1
+    md = database.get_multi_project_observatory_report(conn, snapshot_id)
+    _print_observatory_snapshot(
+        snapshot, snapshot_id=snapshot_id,
+        report_path=md["report_path"] if md else None)
+    return 0
+
+
+def _latest_cross_project_plan_id(conn):
+    rows = database.list_cross_project_work_plans(conn, limit=1)
+    return rows[0]["id"] if rows else None
+
+
+def _latest_cross_project_approval_id(conn):
+    rows = database.list_cross_project_approvals(conn, limit=1)
+    return rows[0]["id"] if rows else None
+
+
+def _print_cross_project_plan(plan) -> None:
+    print(f"plan id          : {plan.id}")
+    print(f"generated_at     : {plan.generated_at}")
+    print(f"status           : {plan.status}")
+    print(f"source request   : {plan.source_request}")
+    print(f"included projects: {plan.included_project_keys or '(none)'}")
+    print(f"excluded projects: {plan.excluded_project_keys or '(none)'}")
+    _rule("DEPENDENCY NOTES")
+    _print_lines(plan.dependency_notes)
+    _rule("REQUIRED APPROVALS")
+    _print_lines(plan.required_approvals)
+    _rule("SAFETY BLOCKERS")
+    _print_lines(plan.safety_blockers or ["(none)"])
+    _rule("SUGGESTED MANUAL COMMANDS (text only — not executed)")
+    _print_lines(plan.suggested_commands)
+    _rule("WORK ITEMS")
+    if not plan.items:
+        print("(none)")
+    for item in plan.items:
+        print(f"- [{item.project_key}] {item.description}")
+        if item.depends_on:
+            print(f"    depends on: {', '.join(item.depends_on)}")
+        for note in item.safety_notes:
+            print(f"    note: {note}")
+
+
+def _cmd_plan_cross_project_work(args) -> int:
+    task = " ".join(args).strip()
+    if not task:
+        print("ERROR: --plan-cross-project-work needs a \"TASK\"", file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    engine = cross_project_planner.CrossProjectPlanner(conn)
+    try:
+        plan = engine.plan_work(task)
+    except ValueError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    _rule("CROSS-PROJECT WORK PLAN")
+    _print_cross_project_plan(plan)
+    return 0
+
+
+def _cmd_cross_project_plans(args) -> int:
+    conn = database.init_db()
+    rows = database.list_cross_project_work_plans(conn)
+    _rule(f"CROSS-PROJECT WORK PLANS ({len(rows)})")
+    if not rows:
+        print("(none) — run: python3 main.py --plan-cross-project-work \"TASK\"")
+        return 0
+    for row in rows:
+        print(f"#{row['id']}  {row['generated_at']}  status={row['status']}")
+        print(f"    request: {row['source_request']}")
+    return 0
+
+
+def _cmd_cross_project_plan(args) -> int:
+    if not args:
+        print("ERROR: --cross-project-plan needs a PLAN_ID", file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    try:
+        plan_id = _parse_id_or_latest(
+            conn, args[0], _latest_cross_project_plan_id, "cross-project plan")
+    except (TypeError, ValueError):
+        print("ERROR: PLAN_ID must be an integer or 'latest'", file=sys.stderr)
+        return 1
+    engine = cross_project_planner.CrossProjectPlanner(conn)
+    plan = engine.get_plan(plan_id)
+    if plan is None:
+        print(f"ERROR: no cross-project plan {args[0]}", file=sys.stderr)
+        return 1
+    _rule(f"CROSS-PROJECT WORK PLAN #{plan.id}")
+    _print_cross_project_plan(plan)
+    return 0
+
+
+def _cmd_set_cross_project_plan_status(args) -> int:
+    if len(args) < 2:
+        print("ERROR: --set-cross-project-plan-status needs PLAN_ID and STATUS",
+              file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    try:
+        plan_id = _parse_id_or_latest(
+            conn, args[0], _latest_cross_project_plan_id, "cross-project plan")
+    except (TypeError, ValueError):
+        print("ERROR: PLAN_ID must be an integer or 'latest'", file=sys.stderr)
+        return 1
+    engine = cross_project_planner.CrossProjectPlanner(conn)
+    try:
+        plan = engine.set_status(plan_id, args[1])
+    except ValueError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    print(f"cross-project plan #{plan.id} status -> {plan.status}")
+    return 0
+
+
+def _print_cross_project_approval(approval) -> None:
+    print(f"approval id : {approval.id}")
+    print(f"plan id     : {approval.plan_id}")
+    print(f"status      : {approval.status}")
+    print(f"requested_at: {approval.requested_at}")
+    print(f"decided_at  : {approval.decided_at or '(none)'}")
+    print(f"decided_by  : {approval.decided_by or '(none)'}")
+    print(f"notes       : {approval.notes or '(none)'}")
+    print(f"usable      : {cross_project_approvals.is_usable(approval)}")
+
+
+def _cmd_request_cross_project_approval(args) -> int:
+    if not args:
+        print("ERROR: --request-cross-project-approval needs a PLAN_ID",
+              file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    try:
+        plan_id = _parse_id_or_latest(
+            conn, args[0], _latest_cross_project_plan_id, "cross-project plan")
+    except (TypeError, ValueError):
+        print("ERROR: PLAN_ID must be an integer or 'latest'", file=sys.stderr)
+        return 1
+    gate = cross_project_approvals.CrossProjectApprovalGate(conn)
+    try:
+        approval = gate.request_approval(plan_id)
+    except ValueError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    _rule("CROSS-PROJECT APPROVAL REQUESTED")
+    _print_cross_project_approval(approval)
+    return 0
+
+
+def _cmd_cross_project_approvals(args) -> int:
+    conn = database.init_db()
+    rows = database.list_cross_project_approvals(conn)
+    _rule(f"CROSS-PROJECT APPROVALS ({len(rows)})")
+    if not rows:
+        print("(none)")
+        return 0
+    for row in rows:
+        print(f"#{row['id']}  plan={row['plan_id']}  status={row['status']}  "
+              f"requested={row['requested_at']}")
+    return 0
+
+
+def _cmd_cross_project_approval(args) -> int:
+    if not args:
+        print("ERROR: --cross-project-approval needs an APPROVAL_ID", file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    try:
+        approval_id = _parse_id_or_latest(
+            conn, args[0], _latest_cross_project_approval_id, "cross-project approval")
+    except (TypeError, ValueError):
+        print("ERROR: APPROVAL_ID must be an integer or 'latest'", file=sys.stderr)
+        return 1
+    gate = cross_project_approvals.CrossProjectApprovalGate(conn)
+    approval = gate.get_approval(approval_id)
+    if approval is None:
+        print(f"ERROR: no cross-project approval {args[0]}", file=sys.stderr)
+        return 1
+    _rule(f"CROSS-PROJECT APPROVAL #{approval.id}")
+    _print_cross_project_approval(approval)
+    return 0
+
+
+def _cmd_set_cross_project_approval(args) -> int:
+    if len(args) < 2:
+        print("ERROR: --set-cross-project-approval needs APPROVAL_ID and DECISION",
+              file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    try:
+        approval_id = _parse_id_or_latest(
+            conn, args[0], _latest_cross_project_approval_id, "cross-project approval")
+    except (TypeError, ValueError):
+        print("ERROR: APPROVAL_ID must be an integer or 'latest'", file=sys.stderr)
+        return 1
+    gate = cross_project_approvals.CrossProjectApprovalGate(conn)
+    try:
+        approval = gate.set_status(approval_id, args[1], decided_by="cli")
+    except ValueError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    print(f"cross-project approval #{approval.id} status -> {approval.status}")
+    return 0
+
+
+def _print_cross_project_handoff(packet) -> None:
+    print(f"handoff id  : {packet.id}")
+    print(f"plan id     : {packet.plan_id}")
+    print(f"approval id : {packet.approval_id}")
+    print(f"status      : {packet.status}")
+    print(f"generated_at: {packet.generated_at}")
+    print(f"projects    : {packet.projects or '(none)'}")
+    print(f"packet path : {packet.report_path}")
+
+
+def _cmd_handoff_cross_project_plan(args) -> int:
+    if not args:
+        print("ERROR: --handoff-cross-project-plan needs PLAN_ID --approval APPROVAL_ID",
+              file=sys.stderr)
+        return 1
+    approval_arg = _flag_val(args, "--approval")
+    if not approval_arg:
+        print("ERROR: --handoff-cross-project-plan requires --approval APPROVAL_ID",
+              file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    try:
+        plan_id = _parse_id_or_latest(
+            conn, args[0], _latest_cross_project_plan_id, "cross-project plan")
+        approval_id = _parse_id_or_latest(
+            conn, approval_arg, _latest_cross_project_approval_id,
+            "cross-project approval")
+    except (TypeError, ValueError):
+        print("ERROR: PLAN_ID/APPROVAL_ID must be an integer or 'latest'",
+              file=sys.stderr)
+        return 1
+    builder = cross_project_handoff.CrossProjectHandoffBuilder(conn)
+    try:
+        packet = builder.create_handoff(plan_id, approval_id)
+    except ValueError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    _rule("CROSS-PROJECT HANDOFF PACKET CREATED")
+    _print_cross_project_handoff(packet)
+    return 0
+
+
+def _cmd_cross_project_handoffs(args) -> int:
+    conn = database.init_db()
+    rows = database.list_cross_project_handoffs(conn)
+    _rule(f"CROSS-PROJECT HANDOFFS ({len(rows)})")
+    if not rows:
+        print("(none)")
+        return 0
+    for row in rows:
+        print(f"#{row['id']}  plan={row['plan_id']}  approval={row['approval_id']}  "
+              f"status={row['status']}")
+        print(f"    packet: {row['report_path']}")
+    return 0
+
+
+def _cmd_cross_project_handoff(args) -> int:
+    if not args:
+        print("ERROR: --cross-project-handoff needs a HANDOFF_ID", file=sys.stderr)
+        return 1
+    try:
+        handoff_id = int(args[0])
+    except (TypeError, ValueError):
+        print("ERROR: HANDOFF_ID must be an integer", file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    builder = cross_project_handoff.CrossProjectHandoffBuilder(conn)
+    packet = builder.get_handoff(handoff_id)
+    if packet is None:
+        print(f"ERROR: no cross-project handoff {handoff_id}", file=sys.stderr)
+        return 1
+    _rule(f"CROSS-PROJECT HANDOFF #{packet.id}")
+    _print_cross_project_handoff(packet)
+    return 0
+
+
+def _latest_multi_project_schedule_id(conn):
+    rows = database.list_multi_project_schedules(conn, limit=1)
+    return rows[0]["id"] if rows else None
+
+
+def _print_multi_project_schedule(schedule) -> None:
+    print(f"schedule id : {schedule.id}")
+    print(f"plan id     : {schedule.plan_id}")
+    print(f"approval id : {schedule.approval_id}")
+    print(f"window      : {schedule.window}")
+    print(f"status      : {schedule.status}")
+    print(f"notes       : {schedule.notes or '(none)'}")
+    print(f"created_at  : {schedule.created_at}")
+    print(f"updated_at  : {schedule.updated_at}")
+    print("note        : scheduling is metadata only — no timer, no auto-run.")
+
+
+def _cmd_schedule_cross_project_plan(args) -> int:
+    if not args:
+        print("ERROR: --schedule-cross-project-plan needs PLAN_ID --approval ID "
+              "--window W", file=sys.stderr)
+        return 1
+    approval_arg = _flag_val(args, "--approval")
+    if not approval_arg:
+        print("ERROR: --schedule-cross-project-plan requires --approval APPROVAL_ID",
+              file=sys.stderr)
+        return 1
+    window = _flag_val(args, "--window") or "manual"
+    conn = database.init_db()
+    try:
+        plan_id = _parse_id_or_latest(
+            conn, args[0], _latest_cross_project_plan_id, "cross-project plan")
+        approval_id = _parse_id_or_latest(
+            conn, approval_arg, _latest_cross_project_approval_id,
+            "cross-project approval")
+    except (TypeError, ValueError):
+        print("ERROR: PLAN_ID/APPROVAL_ID must be an integer or 'latest'",
+              file=sys.stderr)
+        return 1
+    scheduler = multi_project_scheduling.MultiProjectScheduler(conn)
+    try:
+        schedule = scheduler.schedule_plan(plan_id, approval_id, window)
+    except ValueError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    _rule("MULTI-PROJECT SCHEDULE CREATED")
+    _print_multi_project_schedule(schedule)
+    return 0
+
+
+def _cmd_multi_project_schedules(args) -> int:
+    conn = database.init_db()
+    rows = database.list_multi_project_schedules(conn)
+    _rule(f"MULTI-PROJECT SCHEDULES ({len(rows)})")
+    if not rows:
+        print("(none)")
+        return 0
+    for row in rows:
+        print(f"#{row['id']}  plan={row['plan_id']}  approval={row['approval_id']}  "
+              f"window={row['window']}  status={row['status']}")
+    return 0
+
+
+def _cmd_multi_project_schedule(args) -> int:
+    if not args:
+        print("ERROR: --multi-project-schedule needs a SCHEDULE_ID", file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    try:
+        schedule_id = _parse_id_or_latest(
+            conn, args[0], _latest_multi_project_schedule_id, "multi-project schedule")
+    except (TypeError, ValueError):
+        print("ERROR: SCHEDULE_ID must be an integer or 'latest'", file=sys.stderr)
+        return 1
+    scheduler = multi_project_scheduling.MultiProjectScheduler(conn)
+    schedule = scheduler.get_schedule(schedule_id)
+    if schedule is None:
+        print(f"ERROR: no multi-project schedule {args[0]}", file=sys.stderr)
+        return 1
+    _rule(f"MULTI-PROJECT SCHEDULE #{schedule.id}")
+    _print_multi_project_schedule(schedule)
+    return 0
+
+
+def _cmd_set_multi_project_schedule_status(args) -> int:
+    if len(args) < 2:
+        print("ERROR: --set-multi-project-schedule-status needs SCHEDULE_ID and STATUS",
+              file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    try:
+        schedule_id = _parse_id_or_latest(
+            conn, args[0], _latest_multi_project_schedule_id, "multi-project schedule")
+    except (TypeError, ValueError):
+        print("ERROR: SCHEDULE_ID must be an integer or 'latest'", file=sys.stderr)
+        return 1
+    scheduler = multi_project_scheduling.MultiProjectScheduler(conn)
+    try:
+        schedule = scheduler.set_status(schedule_id, args[1])
+    except ValueError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    print(f"multi-project schedule #{schedule.id} status -> {schedule.status} "
+          "(no work started)")
+    return 0
+
+
+def _latest_multi_project_audit_id(conn):
+    rows = database.list_multi_project_audits(conn, limit=1)
+    return rows[0]["id"] if rows else None
+
+
+def _print_multi_project_audit(report, audit_id=None, markdown_path=None) -> None:
+    _rule("MULTI-PROJECT AUDIT")
+    if audit_id is not None:
+        print(f"audit id      : {audit_id}")
+    if markdown_path:
+        print(f"markdown      : {markdown_path}")
+    print(f"generated_at  : {report.generated_at}")
+    print(f"overall_status: {report.overall_status}")
+    print(f"total checks  : {report.total_checks} "
+          f"(pass={report.passed_checks} warn={report.warning_checks} "
+          f"fail={report.failed_checks} blocked={report.blocked_checks})")
+    print(f"stage 8 ready : {report.stage8_readiness.get('ready')}")
+    _rule("SECTIONS")
+    for section in report.sections:
+        print(f"- {section.name}: {section.status}  ({section.summary})")
+        for check in section.checks:
+            print(f"    {check.status}: {check.name} — {check.message}")
+    _rule("STAGE 8 READINESS")
+    readiness = report.stage8_readiness
+    print(f"ready             : {readiness.get('ready')}")
+    print(f"recommended theme : {readiness.get('recommended_stage_8_theme')}")
+    print("blockers:")
+    _print_lines(readiness.get("blockers", []) or ["(none)"])
+    print("warnings:")
+    _print_lines(readiness.get("warnings", []) or ["(none)"])
+    _rule("SAFETY NOTES")
+    _print_lines(report.safety_notes)
+
+
+def _cmd_multi_project_audit(args) -> int:
+    conn = database.init_db()
+    engine = multi_project_audit.MultiProjectAuditEngine(conn)
+    try:
+        report = engine.build_report()
+        audit_id = engine.save_audit(report)
+        markdown_path = None
+        if "--save-report" in args:
+            markdown_path = engine.save_markdown_report(audit_id, report).report_path
+    except Exception as exc:
+        print(f"ERROR: multi-project audit failed: {exc}", file=sys.stderr)
+        return 1
+    _print_multi_project_audit(report, audit_id=audit_id, markdown_path=markdown_path)
+    return 0
+
+
+def _cmd_multi_project_audits(args) -> int:
+    conn = database.init_db()
+    rows = database.list_multi_project_audits(conn)
+    _rule(f"MULTI-PROJECT AUDITS ({len(rows)})")
+    if not rows:
+        print("(none)")
+        return 0
+    for row in rows:
+        print(f"#{row['id']}  {row['generated_at']}  status={row['overall_status']} "
+              f"checks={row['total_checks']} fail={row['failed_checks']} "
+              f"blocked={row['blocked_checks']}")
+    return 0
+
+
+def _cmd_multi_project_audit_show(args) -> int:
+    if not args:
+        print("ERROR: --multi-project-audit-show needs an AUDIT_ID", file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    try:
+        audit_id = _parse_id_or_latest(
+            conn, args[0], _latest_multi_project_audit_id, "multi-project audit")
+    except (TypeError, ValueError):
+        print("ERROR: AUDIT_ID must be an integer or 'latest'", file=sys.stderr)
+        return 1
+    row = database.get_multi_project_audit(conn, audit_id)
+    if row is None:
+        print(f"ERROR: no multi-project audit {args[0]}", file=sys.stderr)
+        return 1
+    report = multi_project_audit.report_from_row(row)
+    md = database.get_multi_project_audit_markdown_report(conn, audit_id)
+    _print_multi_project_audit(
+        report, audit_id=audit_id,
+        markdown_path=md["report_path"] if md else None)
+    return 0
+
+
+def _latest_multi_project_stage7_audit_id(conn):
+    rows = database.list_multi_project_stage7_audits(conn, limit=1)
+    return rows[0]["id"] if rows else None
+
+
+def _print_stage7_audit(report, audit_id=None, markdown_path=None) -> None:
+    _rule("STAGE 7 FINAL AUDIT — MULTI-PROJECT OPERATIONS")
+    if audit_id is not None:
+        print(f"audit id      : {audit_id}")
+    if markdown_path:
+        print(f"markdown      : {markdown_path}")
+    print(f"generated_at  : {report.generated_at}")
+    print(f"overall_status: {report.overall_status}")
+    print(f"total checks  : {report.total_checks} "
+          f"(pass={report.passed_checks} warn={report.warning_checks} "
+          f"fail={report.failed_checks} blocked={report.blocked_checks})")
+    print(f"stage 8 ready : {report.stage8_readiness.get('ready')}")
+    _rule("SECTIONS")
+    for section in report.sections:
+        print(f"- {section.name}: {section.status}  ({section.summary})")
+        for check in section.checks:
+            print(f"    {check.status}: {check.name}")
+    _rule("STAGE 8 READINESS")
+    readiness = report.stage8_readiness
+    print(f"ready             : {readiness.get('ready')}")
+    print(f"recommended theme : {readiness.get('recommended_stage_8_theme')}")
+    print("blockers:")
+    _print_lines(readiness.get("blockers", []) or ["(none)"])
+    print("warnings:")
+    _print_lines(readiness.get("warnings", []) or ["(none)"])
+    _rule("SAFETY NOTES")
+    _print_lines(report.safety_notes)
+    _rule("NEXT STEPS")
+    _print_lines(report.next_steps)
+
+
+def _cmd_multi_project_stage7_audit(args) -> int:
+    conn = database.init_db()
+    engine = multi_project_stage7_audit.MultiProjectStage7AuditEngine(conn)
+    try:
+        report = engine.build_report()
+        audit_id = engine.save_audit(report)
+        markdown_path = None
+        if "--save-report" in args:
+            markdown_path = engine.save_markdown_report(audit_id, report).report_path
+    except Exception as exc:
+        print(f"ERROR: Stage 7 final audit failed: {exc}", file=sys.stderr)
+        return 1
+    _print_stage7_audit(report, audit_id=audit_id, markdown_path=markdown_path)
+    return 0
+
+
+def _cmd_multi_project_stage7_audits(args) -> int:
+    conn = database.init_db()
+    rows = database.list_multi_project_stage7_audits(conn)
+    _rule(f"STAGE 7 FINAL AUDITS ({len(rows)})")
+    if not rows:
+        print("(none)")
+        return 0
+    for row in rows:
+        print(f"#{row['id']}  {row['generated_at']}  status={row['overall_status']} "
+              f"checks={row['total_checks']} fail={row['failed_checks']} "
+              f"blocked={row['blocked_checks']}")
+    return 0
+
+
+def _cmd_multi_project_stage7_audit_show(args) -> int:
+    if not args:
+        print("ERROR: --multi-project-stage7-audit-show needs an AUDIT_ID|latest",
+              file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    try:
+        audit_id = _parse_id_or_latest(
+            conn, args[0], _latest_multi_project_stage7_audit_id,
+            "Stage 7 final audit")
+    except (TypeError, ValueError):
+        print("ERROR: AUDIT_ID must be an integer or 'latest'", file=sys.stderr)
+        return 1
+    row = database.get_multi_project_stage7_audit(conn, audit_id)
+    if row is None:
+        print(f"ERROR: no Stage 7 final audit {args[0]}", file=sys.stderr)
+        return 1
+    report = multi_project_stage7_audit.report_from_row(row)
+    md = database.get_multi_project_stage7_audit_markdown_report(conn, audit_id)
+    _print_stage7_audit(
+        report, audit_id=audit_id,
+        markdown_path=md["report_path"] if md else None)
+    return 0
+
+
 def main() -> int:
     args = sys.argv[1:]
     if args and args[0] in ("--help", "-h", "help"):
@@ -8608,6 +9468,74 @@ def main() -> int:
         return _cmd_set_external_job_labels(args[1:])
     if args and args[0] == "--set-external-job-notes":
         return _cmd_set_external_job_notes(args[1:])
+
+    # --- Stage 7: Multi-Project Operations ---------------------------------
+    if args and args[0] == "--projects":
+        return _cmd_projects()
+    if args and args[0] == "--project":
+        return _cmd_project(args[1:])
+    if args and args[0] == "--register-project":
+        return _cmd_register_project(args[1:])
+    if args and args[0] == "--set-project-status":
+        return _cmd_set_project_status(args[1:])
+    if args and args[0] == "--project-registry-summary":
+        return _cmd_project_registry_summary()
+    if args and args[0] == "--validate-project":
+        return _cmd_validate_project(args[1:])
+    if args and args[0] == "--validate-projects":
+        return _cmd_validate_projects()
+    if args and args[0] == "--project-validation-reports":
+        return _cmd_project_validation_reports(args[1:])
+    if args and args[0] == "--project-validation-report":
+        return _cmd_project_validation_report(args[1:])
+    if args and args[0] == "--multi-project-observatory":
+        return _cmd_multi_project_observatory(args[1:])
+    if args and args[0] == "--multi-project-snapshots":
+        return _cmd_multi_project_snapshots(args[1:])
+    if args and args[0] == "--multi-project-snapshot":
+        return _cmd_multi_project_snapshot(args[1:])
+    if args and args[0] == "--plan-cross-project-work":
+        return _cmd_plan_cross_project_work(args[1:])
+    if args and args[0] == "--cross-project-plans":
+        return _cmd_cross_project_plans(args[1:])
+    if args and args[0] == "--cross-project-plan":
+        return _cmd_cross_project_plan(args[1:])
+    if args and args[0] == "--set-cross-project-plan-status":
+        return _cmd_set_cross_project_plan_status(args[1:])
+    if args and args[0] == "--request-cross-project-approval":
+        return _cmd_request_cross_project_approval(args[1:])
+    if args and args[0] == "--cross-project-approvals":
+        return _cmd_cross_project_approvals(args[1:])
+    if args and args[0] == "--cross-project-approval":
+        return _cmd_cross_project_approval(args[1:])
+    if args and args[0] == "--set-cross-project-approval":
+        return _cmd_set_cross_project_approval(args[1:])
+    if args and args[0] == "--handoff-cross-project-plan":
+        return _cmd_handoff_cross_project_plan(args[1:])
+    if args and args[0] == "--cross-project-handoffs":
+        return _cmd_cross_project_handoffs(args[1:])
+    if args and args[0] == "--cross-project-handoff":
+        return _cmd_cross_project_handoff(args[1:])
+    if args and args[0] == "--schedule-cross-project-plan":
+        return _cmd_schedule_cross_project_plan(args[1:])
+    if args and args[0] == "--multi-project-schedules":
+        return _cmd_multi_project_schedules(args[1:])
+    if args and args[0] == "--multi-project-schedule":
+        return _cmd_multi_project_schedule(args[1:])
+    if args and args[0] == "--set-multi-project-schedule-status":
+        return _cmd_set_multi_project_schedule_status(args[1:])
+    if args and args[0] == "--multi-project-audit":
+        return _cmd_multi_project_audit(args[1:])
+    if args and args[0] == "--multi-project-audits":
+        return _cmd_multi_project_audits(args[1:])
+    if args and args[0] == "--multi-project-audit-show":
+        return _cmd_multi_project_audit_show(args[1:])
+    if args and args[0] == "--multi-project-stage7-audit":
+        return _cmd_multi_project_stage7_audit(args[1:])
+    if args and args[0] == "--multi-project-stage7-audits":
+        return _cmd_multi_project_stage7_audits(args[1:])
+    if args and args[0] == "--multi-project-stage7-audit-show":
+        return _cmd_multi_project_stage7_audit_show(args[1:])
 
     (commit, commit_message, loop_name, overrides, min_conf, workspace_name,
      require_approval, auto_approve_low_risk, approval_mode,

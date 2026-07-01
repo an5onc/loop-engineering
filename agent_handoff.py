@@ -23,6 +23,10 @@ REQUIRED_IGNORES = [
     "external_batch_reports/",
     "loop_improvement_reports/",
     "loop_improvement_review_reports/",
+    "multi_project_observatory_reports/",
+    "cross_project_handoff_packets/",
+    "multi_project_audit_reports/",
+    "multi_project_stage7_audit_reports/",
 ]
 
 CORE_VERIFICATION = [
@@ -88,6 +92,24 @@ def build_handoff(repo_root="."):
     a("These are intentionally local-only and ignored:")
     for pattern in REQUIRED_IGNORES:
         a(f"- `{pattern}`")
+    a("")
+    a("## Multi-Project Operations (Stage 7)")
+    a("")
+    a("Loop Engineering can register and operate across multiple projects. This")
+    a("layer is metadata-only and fail-closed: it performs no hidden writes, no")
+    a("hidden command/model execution, and no cross-project mutation without an")
+    a("explicit approved approval.")
+    a("")
+    a("- Register / inspect: `--register-project KEY --root PATH`, `--projects`, `--project KEY`")
+    a("- Validate: `--validate-projects`, `--project-validation-reports`")
+    a("- Observe (read-only): `--multi-project-observatory [--save-report]`")
+    a("- Plan -> approve -> handoff/schedule:")
+    a("  `--plan-cross-project-work \"TASK\"` -> `--request-cross-project-approval PLAN_ID`")
+    a("  -> `--set-cross-project-approval APPROVAL_ID approved`")
+    a("  -> `--handoff-cross-project-plan PLAN_ID --approval APPROVAL_ID`")
+    a("  -> `--schedule-cross-project-plan PLAN_ID --approval APPROVAL_ID --window manual`")
+    a("- Audit: `--multi-project-audit`, `--multi-project-stage7-audit [--save-report]`")
+    a("- A handoff or schedule is created only when a valid approved approval exists.")
     a("")
     a("## Next Agent Checklist")
     a("")

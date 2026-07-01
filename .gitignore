@@ -29,3 +29,7 @@ loop_improvement_stage6_audit_reports/
 external_agent_handoffs/
 external_agent_jobs/
 external_batch_reports/
+multi_project_observatory_reports/
+cross_project_handoff_packets/
+multi_project_audit_reports/
+multi_project_stage7_audit_reports/
