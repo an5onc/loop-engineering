@@ -43,3 +43,6 @@ cross_project_execution_readiness_reports/
 cross_project_execution_handoff_packets/
 cross_project_execution_audit_reports/
 cross_project_stage9_audit_reports/
+cross_project_execution_snapshot_reports/
+cross_project_execution_runtime_reports/
+cross_project_stage10_audit_reports/

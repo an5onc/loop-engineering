@@ -131,6 +131,36 @@ is metadata-only until a later explicitly approved execution stage.
   `cross_project_execution_audit_reports/`,
   `cross_project_stage9_audit_reports/`.
 
+## Controlled Cross-Project Execution (Stage 10)
+
+Stage 10 is the first cross-project layer that can execute a command, but only
+one explicitly confirmed project step at a time.
+
+- Execution requires a Stage 9 plan, latest passing dry-run, approved Stage 9
+  approval, matching handoff, Stage 10 confirmation, rollback snapshot, and
+  explicit `--confirm-execution`.
+- Commands must route through `terminal.run_command`; do not add alternate
+  subprocess paths for Stage 10 execution.
+- Stage 10 writes only Stage 10 metadata tables and optional ignored reports. It
+  must not write loop `command_results`, create loops, create external jobs,
+  auto-commit, push, create branches, call Ollama, or execute batches.
+- Rollback restore requires preview plus explicit `--confirm-restore` and may
+  restore only files captured in the snapshot.
+- Typical flow:
+  `--prepare-cross-project-execution PLAN_ID --approval APPROVAL_ID`
+  → `--resolve-cross-project-execution-scope SESSION_ID`
+  → `--request-cross-project-execution-confirmation SESSION_ID --step STEP_ID --command PROPOSAL_ID`
+  → `--set-cross-project-execution-confirmation CONFIRMATION_ID approved`
+  → `--snapshot-cross-project-execution SESSION_ID --confirmation CONFIRMATION_ID`
+  → `--execute-cross-project-command SESSION_ID --confirmation CONFIRMATION_ID --snapshot SNAPSHOT_ID --confirm-execution`
+  → `--verify-cross-project-execution ATTEMPT_ID`
+  → `--record-cross-project-execution-outcome ATTEMPT_ID`
+  → `--cross-project-runtime-audit` / `--cross-project-stage10-audit`.
+- Stage 10 generated reports are ignored runtime artifacts:
+  `cross_project_execution_snapshot_reports/`,
+  `cross_project_execution_runtime_reports/`,
+  `cross_project_stage10_audit_reports/`.
+
 
 <claude-mem-context>
 # Memory Context

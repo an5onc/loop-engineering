@@ -1,6 +1,6 @@
 # Loop Engineering Agent Handoff
 
-- Generated at: 2026-07-01T13:38:45
+- Generated at: 2026-07-01T14:35:02
 - Branch: `main`
 - Remote: `https://github.com/an5onc/loop-engineering.git`
 
@@ -60,6 +60,9 @@ These are intentionally local-only and ignored:
 - `cross_project_execution_handoff_packets/`
 - `cross_project_execution_audit_reports/`
 - `cross_project_stage9_audit_reports/`
+- `cross_project_execution_snapshot_reports/`
+- `cross_project_execution_runtime_reports/`
+- `cross_project_stage10_audit_reports/`
 
 ## Multi-Project Operations (Stage 7)
 
@@ -109,6 +112,21 @@ still planning-only: no commands are run and no project roots are written.
 - Handoff: `--handoff-cross-project-execution PLAN_ID --approval APPROVAL_ID`
 - Audit: `--cross-project-execution-audit`, `--cross-project-stage9-audit [--save-report]`
 - No hidden command/model runs, no project-root writes, no external jobs, no auto-commit.
+
+## Controlled Cross-Project Execution (Stage 10)
+
+Stage 10 can execute exactly one confirmed cross-project command at a time.
+It requires a Stage 9 plan, latest passing dry-run, approved Stage 9
+approval, matching handoff, Stage 10 confirmation, rollback snapshot, and
+explicit `--confirm-execution`.
+
+- Session: `--prepare-cross-project-execution PLAN_ID --approval APPROVAL_ID`
+- Scope: `--resolve-cross-project-execution-scope SESSION_ID`
+- Confirmation: `--request-cross-project-execution-confirmation SESSION_ID --step STEP_ID --command PROPOSAL_ID` -> `--set-cross-project-execution-confirmation CONFIRMATION_ID approved`
+- Snapshot: `--snapshot-cross-project-execution SESSION_ID --confirmation CONFIRMATION_ID`
+- Execute: `--execute-cross-project-command SESSION_ID --confirmation CONFIRMATION_ID --snapshot SNAPSHOT_ID --confirm-execution`
+- Verify/outcome/audit: `--verify-cross-project-execution ATTEMPT_ID` -> `--record-cross-project-execution-outcome ATTEMPT_ID` -> `--cross-project-stage10-audit`
+- Execution uses `terminal.run_command`; no alternate subprocess path, hidden model call, external job, auto-commit, push, branch creation, or batch execution.
 
 ## Next Agent Checklist
 

@@ -37,6 +37,9 @@ REQUIRED_IGNORES = [
     "cross_project_execution_handoff_packets/",
     "cross_project_execution_audit_reports/",
     "cross_project_stage9_audit_reports/",
+    "cross_project_execution_snapshot_reports/",
+    "cross_project_execution_runtime_reports/",
+    "cross_project_stage10_audit_reports/",
 ]
 
 CORE_VERIFICATION = [
@@ -151,6 +154,21 @@ def build_handoff(repo_root="."):
     a("- Handoff: `--handoff-cross-project-execution PLAN_ID --approval APPROVAL_ID`")
     a("- Audit: `--cross-project-execution-audit`, `--cross-project-stage9-audit [--save-report]`")
     a("- No hidden command/model runs, no project-root writes, no external jobs, no auto-commit.")
+    a("")
+    a("## Controlled Cross-Project Execution (Stage 10)")
+    a("")
+    a("Stage 10 can execute exactly one confirmed cross-project command at a time.")
+    a("It requires a Stage 9 plan, latest passing dry-run, approved Stage 9")
+    a("approval, matching handoff, Stage 10 confirmation, rollback snapshot, and")
+    a("explicit `--confirm-execution`.")
+    a("")
+    a("- Session: `--prepare-cross-project-execution PLAN_ID --approval APPROVAL_ID`")
+    a("- Scope: `--resolve-cross-project-execution-scope SESSION_ID`")
+    a("- Confirmation: `--request-cross-project-execution-confirmation SESSION_ID --step STEP_ID --command PROPOSAL_ID` -> `--set-cross-project-execution-confirmation CONFIRMATION_ID approved`")
+    a("- Snapshot: `--snapshot-cross-project-execution SESSION_ID --confirmation CONFIRMATION_ID`")
+    a("- Execute: `--execute-cross-project-command SESSION_ID --confirmation CONFIRMATION_ID --snapshot SNAPSHOT_ID --confirm-execution`")
+    a("- Verify/outcome/audit: `--verify-cross-project-execution ATTEMPT_ID` -> `--record-cross-project-execution-outcome ATTEMPT_ID` -> `--cross-project-stage10-audit`")
+    a("- Execution uses `terminal.run_command`; no alternate subprocess path, hidden model call, external job, auto-commit, push, branch creation, or batch execution.")
     a("")
     a("## Next Agent Checklist")
     a("")

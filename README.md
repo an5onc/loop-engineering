@@ -1,4 +1,81 @@
-# Loop Engineering — Stage 9
+# Loop Engineering — Stage 10
+
+## What's new in 10 — Controlled Cross-Project Execution
+
+Stage 10 builds on the Stage 9 planning layer and can execute exactly one
+approved cross-project command at a time. Execution is fail-closed: it requires
+a Stage 9 plan, latest passing dry-run, approved Stage 9 approval, matching
+handoff, Stage 10 confirmation, rollback snapshot, allowlisted command, and an
+explicit `--confirm-execution` flag. It uses dedicated Stage 10 runtime tables,
+not loop `command_results`.
+
+### 10.0 Execution session preflight
+
+```bash
+python3 main.py --prepare-cross-project-execution PLAN_ID --approval APPROVAL_ID
+python3 main.py --cross-project-execution-sessions
+python3 main.py --cross-project-execution-session SESSION_ID
+```
+
+### 10.1 Scope resolution
+
+```bash
+python3 main.py --resolve-cross-project-execution-scope SESSION_ID
+```
+
+### 10.2 Human execution confirmation
+
+```bash
+python3 main.py --request-cross-project-execution-confirmation SESSION_ID --step STEP_ID --command PROPOSAL_ID
+python3 main.py --set-cross-project-execution-confirmation CONFIRMATION_ID approved
+```
+
+### 10.3 Rollback snapshot
+
+```bash
+python3 main.py --snapshot-cross-project-execution SESSION_ID --confirmation CONFIRMATION_ID
+```
+
+Optional `--target-file PATH` entries capture only allowlisted, non-protected
+files for rollback. Protected paths and traversal are rejected.
+
+### 10.4 Single command execution
+
+```bash
+python3 main.py --execute-cross-project-command SESSION_ID --confirmation CONFIRMATION_ID --snapshot SNAPSHOT_ID --confirm-execution
+```
+
+Execution routes through `terminal.run_command`: no shell, no command chaining,
+fixed allowlist, cwd confinement, timeout, and limited environment. Stage 10
+does not auto-commit, push, create branches, call Ollama, create loops/jobs, or
+create external-agent jobs.
+
+### 10.5 Verification, rollback, outcomes, audits
+
+```bash
+python3 main.py --verify-cross-project-execution ATTEMPT_ID
+python3 main.py --preview-cross-project-execution-rollback SNAPSHOT_ID
+python3 main.py --restore-cross-project-execution-rollback SNAPSHOT_ID --confirm-restore
+python3 main.py --record-cross-project-execution-outcome ATTEMPT_ID
+python3 main.py --cross-project-runtime-audit --save-report
+python3 main.py --cross-project-stage10-audit --save-report
+```
+
+### Stage 10 tests
+
+```bash
+python3 -m unittest \
+  test_cross_project_execution_sessions.py \
+  test_cross_project_execution_scope.py \
+  test_cross_project_execution_confirmations.py \
+  test_cross_project_execution_snapshots.py \
+  test_cross_project_execution_runtime.py \
+  test_cross_project_execution_verification.py \
+  test_cross_project_execution_rollback.py \
+  test_cross_project_execution_outcomes.py \
+  test_cross_project_runtime_audit.py \
+  test_cross_project_stage10_audit.py
+```
 
 ## What's new in 9 — Controlled Cross-Project Execution Planning
 

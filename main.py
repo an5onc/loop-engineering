@@ -87,6 +87,16 @@ import cross_project_execution_approvals
 import cross_project_execution_handoff
 import cross_project_execution_audit
 import cross_project_stage9_audit
+import cross_project_execution_sessions
+import cross_project_execution_scope
+import cross_project_execution_confirmations
+import cross_project_execution_snapshots
+import cross_project_execution_runtime
+import cross_project_execution_verification
+import cross_project_execution_rollback
+import cross_project_execution_outcomes
+import cross_project_runtime_audit
+import cross_project_stage10_audit
 from loop_engine import LoopEngine
 
 USAGE = """Loop Engineering — orchestrates local Ollama models in a safe
@@ -284,6 +294,21 @@ CONTROLLED CROSS-PROJECT EXECUTION PLANNING (Stage 9, no execution):
   --cross-project-execution-audits / --cross-project-execution-audit-show AUDIT_ID|latest
   --cross-project-stage9-audit [--save-report]
   --cross-project-stage9-audits / --cross-project-stage9-audit-show AUDIT_ID|latest
+
+CONTROLLED CROSS-PROJECT EXECUTION (Stage 10, one confirmed command at a time):
+  --prepare-cross-project-execution PLAN_ID --approval APPROVAL_ID
+  --cross-project-execution-sessions / --cross-project-execution-session SESSION_ID
+  --resolve-cross-project-execution-scope SESSION_ID
+  --request-cross-project-execution-confirmation SESSION_ID --step STEP_ID --command PROPOSAL_ID
+  --set-cross-project-execution-confirmation CONFIRMATION_ID approved|rejected
+  --snapshot-cross-project-execution SESSION_ID --confirmation CONFIRMATION_ID [--target-file PATH ...]
+  --execute-cross-project-command SESSION_ID --confirmation CONFIRMATION_ID --snapshot SNAPSHOT_ID --confirm-execution
+  --verify-cross-project-execution ATTEMPT_ID
+  --preview-cross-project-execution-rollback SNAPSHOT_ID
+  --restore-cross-project-execution-rollback SNAPSHOT_ID --confirm-restore
+  --record-cross-project-execution-outcome ATTEMPT_ID
+  --cross-project-runtime-audit [--save-report]
+  --cross-project-stage10-audit [--save-report]
   --help, -h                  show this help
 
 Resume is preferred over --import-external-completion (kept for compatibility).
@@ -10038,6 +10063,36 @@ def _latest_stage9_audit_id(conn):
     return rows[0]["id"] if rows else None
 
 
+def _latest_execution_session_id(conn):
+    rows = database.list_cross_project_execution_sessions(conn, limit=1)
+    return rows[0]["id"] if rows else None
+
+
+def _latest_execution_confirmation_id(conn):
+    rows = database.list_cross_project_execution_confirmations(conn, limit=1)
+    return rows[0]["id"] if rows else None
+
+
+def _latest_execution_snapshot_id(conn):
+    rows = database.list_cross_project_execution_snapshots(conn, limit=1)
+    return rows[0]["id"] if rows else None
+
+
+def _latest_execution_attempt_id(conn):
+    rows = database.list_cross_project_execution_attempts(conn, limit=1)
+    return rows[0]["id"] if rows else None
+
+
+def _latest_runtime_audit_id(conn):
+    rows = database.list_cross_project_runtime_audits(conn, limit=1)
+    return rows[0]["id"] if rows else None
+
+
+def _latest_stage10_audit_id(conn):
+    rows = database.list_cross_project_stage10_audits(conn, limit=1)
+    return rows[0]["id"] if rows else None
+
+
 def _print_execution_intent(intent) -> None:
     print(f"id         : {intent.id}")
     print(f"source     : {intent.source_type}:{intent.source_id}")
@@ -10601,6 +10656,358 @@ def _cmd_execution_audit_show(args) -> int:
     return 0
 
 
+def _target_files_from_args(args):
+    targets = []
+    for i, item in enumerate(args):
+        if item == "--target-file" and i + 1 < len(args):
+            targets.append(args[i + 1])
+    return targets
+
+
+def _print_execution_session(session) -> None:
+    _rule("CROSS-PROJECT EXECUTION SESSION")
+    print(f"session id  : {session.id}")
+    print(f"plan id     : {session.plan_id}")
+    print(f"approval id : {session.approval_id}")
+    print(f"dry-run id  : {session.dry_run_id}")
+    print(f"handoff id  : {session.handoff_id}")
+    print(f"status      : {session.status}")
+    print(f"summary     : {session.summary}")
+    _rule("ELIGIBLE STEPS")
+    for step in session.eligible_steps:
+        print(f"- #{step.get('step_id')} {step.get('project_key')} {step.get('phase')}")
+    _rule("REQUIRED NEXT CONTROLS")
+    _print_lines(session.required_next_controls)
+
+
+def _cmd_prepare_cross_project_execution(args) -> int:
+    if not args or args[0].startswith("--"):
+        print("ERROR: --prepare-cross-project-execution needs PLAN_ID --approval APPROVAL_ID",
+              file=sys.stderr)
+        return 1
+    approval_arg = _flag_val(args, "--approval")
+    if approval_arg is None:
+        print("ERROR: --prepare-cross-project-execution requires --approval APPROVAL_ID",
+              file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    try:
+        plan_id = _parse_id_or_latest(conn, args[0], _latest_execution_plan_id,
+                                      "execution plan")
+        approval_id = _parse_id_or_latest(
+            conn, approval_arg, _latest_execution_approval_id, "execution approval")
+        session = cross_project_execution_sessions.CrossProjectExecutionSessionManager(
+            conn).prepare(plan_id, approval_id)
+    except (TypeError, ValueError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    _print_execution_session(session)
+    return 0
+
+
+def _cmd_execution_sessions(args) -> int:
+    conn = database.init_db()
+    rows = database.list_cross_project_execution_sessions(conn)
+    _rule(f"CROSS-PROJECT EXECUTION SESSIONS ({len(rows)})")
+    if not rows:
+        print("(none)")
+    for row in rows:
+        print(f"#{row['id']} plan={row['plan_id']} approval={row['approval_id']} "
+              f"status={row['status']}")
+    return 0
+
+
+def _cmd_execution_session(args) -> int:
+    if not args:
+        print("ERROR: --cross-project-execution-session needs SESSION_ID|latest",
+              file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    try:
+        session_id = _parse_id_or_latest(
+            conn, args[0], _latest_execution_session_id, "execution session")
+    except (TypeError, ValueError):
+        print("ERROR: SESSION_ID must be an integer or 'latest'", file=sys.stderr)
+        return 1
+    session = cross_project_execution_sessions.CrossProjectExecutionSessionManager(
+        conn).get_session(session_id)
+    if session is None:
+        print(f"ERROR: no execution session {args[0]}", file=sys.stderr)
+        return 1
+    _print_execution_session(session)
+    return 0
+
+
+def _cmd_resolve_execution_scope(args) -> int:
+    if not args:
+        print("ERROR: --resolve-cross-project-execution-scope needs SESSION_ID",
+              file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    try:
+        session_id = _parse_id_or_latest(
+            conn, args[0], _latest_execution_session_id, "execution session")
+        checks = cross_project_execution_scope.CrossProjectExecutionScopeResolver(
+            conn).resolve(session_id)
+    except (TypeError, ValueError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    _rule(f"CROSS-PROJECT EXECUTION SCOPE ({len(checks)})")
+    for check in checks:
+        print(f"#{check.id} session={check.session_id} step={check.step_id} "
+              f"project={check.project_key} status={check.status}")
+        print(f"  cwd    : {check.command_cwd}")
+        print(f"  command: {check.command_text}")
+        if check.blocked_reasons:
+            print(f"  blocked: {check.blocked_reasons}")
+    return 0
+
+
+def _print_execution_confirmation(confirmation) -> None:
+    _rule("CROSS-PROJECT EXECUTION CONFIRMATION")
+    print(f"confirmation id: {confirmation.id}")
+    print(f"session id     : {confirmation.session_id}")
+    print(f"plan id        : {confirmation.plan_id}")
+    print(f"step id        : {confirmation.step_id}")
+    print(f"command id     : {confirmation.command_proposal_id}")
+    print(f"project        : {confirmation.project_key}")
+    print(f"status         : {confirmation.status}")
+
+
+def _cmd_request_execution_confirmation(args) -> int:
+    if not args:
+        print("ERROR: --request-cross-project-execution-confirmation needs SESSION_ID "
+              "--step STEP_ID --command PROPOSAL_ID", file=sys.stderr)
+        return 1
+    step_arg = _flag_val(args, "--step")
+    command_arg = _flag_val(args, "--command")
+    if step_arg is None or command_arg is None:
+        print("ERROR: execution confirmation requires --step and --command",
+              file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    try:
+        session_id = _parse_id_or_latest(
+            conn, args[0], _latest_execution_session_id, "execution session")
+        confirmation = cross_project_execution_confirmations.CrossProjectExecutionConfirmationGate(
+            conn).request(session_id, int(step_arg), int(command_arg))
+    except (TypeError, ValueError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    _print_execution_confirmation(confirmation)
+    return 0
+
+
+def _cmd_set_execution_confirmation(args) -> int:
+    if len(args) < 2:
+        print("ERROR: --set-cross-project-execution-confirmation needs "
+              "CONFIRMATION_ID STATUS", file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    try:
+        confirmation_id = _parse_id_or_latest(
+            conn, args[0], _latest_execution_confirmation_id,
+            "execution confirmation")
+        confirmation = cross_project_execution_confirmations.CrossProjectExecutionConfirmationGate(
+            conn).set_status(confirmation_id, args[1])
+    except (TypeError, ValueError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    _print_execution_confirmation(confirmation)
+    return 0
+
+
+def _cmd_snapshot_cross_project_execution(args) -> int:
+    if not args:
+        print("ERROR: --snapshot-cross-project-execution needs SESSION_ID "
+              "--confirmation CONFIRMATION_ID", file=sys.stderr)
+        return 1
+    confirmation_arg = _flag_val(args, "--confirmation")
+    if confirmation_arg is None:
+        print("ERROR: snapshot requires --confirmation CONFIRMATION_ID",
+              file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    try:
+        session_id = _parse_id_or_latest(
+            conn, args[0], _latest_execution_session_id, "execution session")
+        confirmation_id = _parse_id_or_latest(
+            conn, confirmation_arg, _latest_execution_confirmation_id,
+            "execution confirmation")
+        snapshot = cross_project_execution_snapshots.CrossProjectExecutionSnapshotBuilder(
+            conn).create_snapshot(session_id, confirmation_id,
+                                  target_files=_target_files_from_args(args))
+    except (TypeError, ValueError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    _rule("CROSS-PROJECT EXECUTION SNAPSHOT")
+    print(f"snapshot id : {snapshot.id}")
+    print(f"session id  : {snapshot.session_id}")
+    print(f"confirmation: {snapshot.confirmation_id}")
+    print(f"status      : {snapshot.status}")
+    print(f"files       : total={snapshot.total_files} captured={snapshot.captured_files} "
+          f"missing={snapshot.missing_files}")
+    return 0
+
+
+def _cmd_execute_cross_project_command(args) -> int:
+    if not args:
+        print("ERROR: --execute-cross-project-command needs SESSION_ID --confirmation "
+              "CONFIRMATION_ID --snapshot SNAPSHOT_ID --confirm-execution",
+              file=sys.stderr)
+        return 1
+    confirmation_arg = _flag_val(args, "--confirmation")
+    snapshot_arg = _flag_val(args, "--snapshot")
+    if confirmation_arg is None or snapshot_arg is None:
+        print("ERROR: execution requires --confirmation and --snapshot",
+              file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    try:
+        session_id = _parse_id_or_latest(
+            conn, args[0], _latest_execution_session_id, "execution session")
+        confirmation_id = _parse_id_or_latest(
+            conn, confirmation_arg, _latest_execution_confirmation_id,
+            "execution confirmation")
+        snapshot_id = _parse_id_or_latest(
+            conn, snapshot_arg, _latest_execution_snapshot_id, "execution snapshot")
+        attempt = cross_project_execution_runtime.CrossProjectExecutionRuntime(
+            conn).execute(session_id, confirmation_id, snapshot_id,
+                          confirm_execution=("--confirm-execution" in args))
+    except (TypeError, ValueError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    _rule("CROSS-PROJECT EXECUTION ATTEMPT")
+    print(f"attempt id : {attempt.id}")
+    print(f"status     : {attempt.status}")
+    print(f"allowed    : {attempt.allowed}")
+    print(f"exit code  : {attempt.exit_code}")
+    print(f"timed out  : {attempt.timed_out}")
+    return 0
+
+
+def _cmd_verify_cross_project_execution(args) -> int:
+    if not args:
+        print("ERROR: --verify-cross-project-execution needs ATTEMPT_ID",
+              file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    try:
+        attempt_id = _parse_id_or_latest(
+            conn, args[0], _latest_execution_attempt_id, "execution attempt")
+        run = cross_project_execution_verification.CrossProjectExecutionVerificationRunner(
+            conn).verify(attempt_id)
+    except (TypeError, ValueError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    _rule("CROSS-PROJECT EXECUTION VERIFICATION")
+    print(f"verification id: {run.id}")
+    print(f"attempt id     : {run.attempt_id}")
+    print(f"overall status : {run.overall_status}")
+    for finding in run.findings:
+        print(f"- {finding.status}: {finding.category} — {finding.message}")
+    return 0
+
+
+def _cmd_preview_execution_rollback(args) -> int:
+    if not args:
+        print("ERROR: --preview-cross-project-execution-rollback needs SNAPSHOT_ID",
+              file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    try:
+        snapshot_id = _parse_id_or_latest(
+            conn, args[0], _latest_execution_snapshot_id, "execution snapshot")
+        restore = cross_project_execution_rollback.CrossProjectExecutionRollbackEngine(
+            conn).preview(snapshot_id)
+    except (TypeError, ValueError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    _rule("CROSS-PROJECT EXECUTION ROLLBACK PREVIEW")
+    print(f"restore id    : {restore.id}")
+    print(f"snapshot id   : {restore.snapshot_id}")
+    print(f"status        : {restore.status}")
+    print(f"restores files: {restore.restores_files}")
+    return 0
+
+
+def _cmd_restore_execution_rollback(args) -> int:
+    if not args:
+        print("ERROR: --restore-cross-project-execution-rollback needs SNAPSHOT_ID "
+              "--confirm-restore", file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    try:
+        snapshot_id = _parse_id_or_latest(
+            conn, args[0], _latest_execution_snapshot_id, "execution snapshot")
+        restore = cross_project_execution_rollback.CrossProjectExecutionRollbackEngine(
+            conn).restore(snapshot_id, confirm_restore=("--confirm-restore" in args))
+    except (TypeError, ValueError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    _rule("CROSS-PROJECT EXECUTION ROLLBACK RESTORE")
+    print(f"restore id    : {restore.id}")
+    print(f"snapshot id   : {restore.snapshot_id}")
+    print(f"status        : {restore.status}")
+    print(f"restored files: {restore.restored_files}")
+    return 0
+
+
+def _cmd_record_execution_outcome(args) -> int:
+    if not args:
+        print("ERROR: --record-cross-project-execution-outcome needs ATTEMPT_ID",
+              file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    try:
+        attempt_id = _parse_id_or_latest(
+            conn, args[0], _latest_execution_attempt_id, "execution attempt")
+        outcome = cross_project_execution_outcomes.CrossProjectExecutionOutcomeTracker(
+            conn).record(attempt_id)
+    except (TypeError, ValueError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    _rule("CROSS-PROJECT EXECUTION OUTCOME")
+    print(f"outcome id: {outcome.id}")
+    print(f"attempt id: {outcome.attempt_id}")
+    print(f"status    : {outcome.status}")
+    print(f"summary   : {outcome.summary}")
+    return 0
+
+
+def _cmd_cross_project_runtime_audit(args) -> int:
+    conn = database.init_db()
+    engine = cross_project_runtime_audit.CrossProjectRuntimeAuditEngine(conn)
+    report = engine.build_report()
+    audit_id = engine.save_audit(report)
+    markdown_path = engine.save_markdown_report(audit_id, report) if "--save-report" in args else None
+    _rule("CROSS-PROJECT RUNTIME EXECUTION AUDIT")
+    print(f"audit id      : {audit_id}")
+    print(f"overall status: {report.overall_status}")
+    if markdown_path:
+        print(f"markdown      : {markdown_path}")
+    for check in report.checks:
+        print(f"- {check.status}: {check.name} — {check.message}")
+    return 0
+
+
+def _cmd_cross_project_stage10_audit(args) -> int:
+    conn = database.init_db()
+    engine = cross_project_stage10_audit.CrossProjectStage10AuditEngine(conn)
+    report = engine.build_report()
+    audit_id = engine.save_audit(report)
+    markdown_path = engine.save_markdown_report(audit_id, report) if "--save-report" in args else None
+    _rule("STAGE 10 FINAL AUDIT — CONTROLLED CROSS-PROJECT EXECUTION")
+    print(f"audit id      : {audit_id}")
+    print(f"overall status: {report.overall_status}")
+    print(f"stage 11 ready: {report.stage11_readiness.get('ready')}")
+    if markdown_path:
+        print(f"markdown      : {markdown_path}")
+    for check in report.checks:
+        print(f"- {check.status}: {check.name} — {check.message}")
+    return 0
+
+
 def _print_stage9_audit(report, audit_id=None, markdown_path=None) -> None:
     _rule("STAGE 9 FINAL AUDIT — CONTROLLED CROSS-PROJECT EXECUTION PLANNING")
     if audit_id is not None:
@@ -11140,6 +11547,35 @@ def main() -> int:
         return _cmd_stage9_audits(args[1:])
     if args and args[0] == "--cross-project-stage9-audit-show":
         return _cmd_stage9_audit_show(args[1:])
+    # --- Stage 10: Controlled Cross-Project Execution --------------------
+    if args and args[0] == "--prepare-cross-project-execution":
+        return _cmd_prepare_cross_project_execution(args[1:])
+    if args and args[0] == "--cross-project-execution-sessions":
+        return _cmd_execution_sessions(args[1:])
+    if args and args[0] == "--cross-project-execution-session":
+        return _cmd_execution_session(args[1:])
+    if args and args[0] == "--resolve-cross-project-execution-scope":
+        return _cmd_resolve_execution_scope(args[1:])
+    if args and args[0] == "--request-cross-project-execution-confirmation":
+        return _cmd_request_execution_confirmation(args[1:])
+    if args and args[0] == "--set-cross-project-execution-confirmation":
+        return _cmd_set_execution_confirmation(args[1:])
+    if args and args[0] == "--snapshot-cross-project-execution":
+        return _cmd_snapshot_cross_project_execution(args[1:])
+    if args and args[0] == "--execute-cross-project-command":
+        return _cmd_execute_cross_project_command(args[1:])
+    if args and args[0] == "--verify-cross-project-execution":
+        return _cmd_verify_cross_project_execution(args[1:])
+    if args and args[0] == "--preview-cross-project-execution-rollback":
+        return _cmd_preview_execution_rollback(args[1:])
+    if args and args[0] == "--restore-cross-project-execution-rollback":
+        return _cmd_restore_execution_rollback(args[1:])
+    if args and args[0] == "--record-cross-project-execution-outcome":
+        return _cmd_record_execution_outcome(args[1:])
+    if args and args[0] == "--cross-project-runtime-audit":
+        return _cmd_cross_project_runtime_audit(args[1:])
+    if args and args[0] == "--cross-project-stage10-audit":
+        return _cmd_cross_project_stage10_audit(args[1:])
 
     (commit, commit_message, loop_name, overrides, min_conf, workspace_name,
      require_approval, auto_approve_low_risk, approval_mode,
