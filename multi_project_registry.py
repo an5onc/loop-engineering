@@ -108,11 +108,20 @@ def resolve_root(root_path) -> str:
 
 
 def _is_inside_system_root(resolved) -> bool:
+    resolved = os.path.realpath(resolved)
+    exact_only_roots = {
+        os.path.realpath("/"),
+        os.path.realpath("/var"),
+    }
     for protected in PROTECTED_SYSTEM_ROOTS:
         base = os.path.realpath(protected)
-        if resolved == base and base == os.path.realpath("/"):
-            return True
+        if base in exact_only_roots:
+            if resolved == base:
+                return True
+            continue
         if resolved == base:
+            return True
+        if resolved.startswith(base + os.sep):
             return True
     return False
 

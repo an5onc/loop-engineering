@@ -55,6 +55,20 @@ class MultiProjectRegistryTests(unittest.TestCase):
             registry.register_project("ghost", os.path.join(self.td.name, "nope"))
         self.assertEqual(_count(self.conn, "registered_projects"), 0)
 
+    def test_project_inside_protected_system_root_rejected(self):
+        protected_root = os.path.join(self.td.name, "protected")
+        project_root = os.path.join(protected_root, "child")
+        os.makedirs(project_root)
+        old_roots = self.reg.PROTECTED_SYSTEM_ROOTS
+        self.reg.PROTECTED_SYSTEM_ROOTS = (protected_root,)
+        self.addCleanup(setattr, self.reg, "PROTECTED_SYSTEM_ROOTS", old_roots)
+
+        registry = self.reg.ProjectRegistry(self.conn)
+
+        with self.assertRaises(ValueError):
+            registry.register_project("inside", project_root)
+        self.assertEqual(_count(self.conn, "registered_projects"), 0)
+
     def test_invalid_key_rejected(self):
         registry = self.reg.ProjectRegistry(self.conn)
         with self.assertRaises(ValueError):
