@@ -48,6 +48,15 @@ class GovernanceReviewQueueTests(unittest.TestCase):
         self.assertEqual(items[0].status, "open")
         self.assertEqual(items[0].rule_key, "not_stale")
 
+    def test_create_review_items_is_idempotent_for_evaluation(self):
+        ev = self._failing_evaluation()
+        engine = self.queue.GovernanceReviewQueue(self.conn)
+        first = engine.create_items(ev.id)
+        second = engine.create_items(ev.id)
+        self.assertEqual(len(first), 1)
+        self.assertEqual(second, [])
+        self.assertEqual(len(engine.list_items()), 1)
+
     def test_pass_findings_do_not_create_items(self):
         self.registry.register_project("alpha", self.a)
         self.policies.create_policy("p", ["not_stale"])

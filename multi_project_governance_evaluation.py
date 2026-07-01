@@ -96,7 +96,7 @@ def waiver_is_active(row, now=None) -> bool:
         return True
     parsed = _parse_iso(expiry)
     if parsed is None:
-        return True  # unparseable expiry -> treat as no expiry
+        return False
     cmp_now = now or datetime.datetime.now()
     if parsed.tzinfo is not None:
         cmp_now = datetime.datetime.now(parsed.tzinfo)

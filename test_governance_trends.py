@@ -97,15 +97,20 @@ class GovernanceTrendTests(unittest.TestCase):
         _run_cli(["--create-governance-policy", "--default"], cwd, env)
         _run_cli(["--evaluate-governance-policies"], cwd, env)
 
-        tr = _run_cli(["--governance-trends", "--save-report"], cwd, env)
+        tr = _run_cli(["--governance-trends"], cwd, env)
         self.assertEqual(tr.returncode, 0, tr.stderr)
         self.assertIn("GOVERNANCE TRENDS", tr.stdout)
+
+        conn = database.init_db(db_path)
+        self.addCleanup(conn.close)
+        self.assertEqual(len(database.list_governance_trend_snapshots(conn)), 1)
+
+        saved = _run_cli(["--governance-trends", "--save-report"], cwd, env)
+        self.assertEqual(saved.returncode, 0, saved.stderr)
 
         lst = _run_cli(["--governance-trend-snapshots"], cwd, env)
         self.assertEqual(lst.returncode, 0, lst.stderr)
 
-        conn = database.init_db(db_path)
-        self.addCleanup(conn.close)
         sid = database.list_governance_trend_snapshots(conn)[0]["id"]
         show = _run_cli(["--governance-trend-snapshot", str(sid)], cwd, env)
         self.assertEqual(show.returncode, 0, show.stderr)

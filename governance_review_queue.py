@@ -58,6 +58,9 @@ class GovernanceReviewQueue:
                 self.conn, evaluation_id):
             if finding["status"] not in ACTIONABLE_FINDING_STATUSES:
                 continue
+            if database.get_governance_review_item_for_finding(
+                    self.conn, evaluation_id, finding["id"]):
+                continue
             item_id = database.save_governance_review_item(
                 self.conn, evaluation_id, finding["id"], finding["policy_key"],
                 finding["rule_key"], finding["subject"], finding["signature"],

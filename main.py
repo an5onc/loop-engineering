@@ -9419,10 +9419,9 @@ def _cmd_fleet_governance_report(args) -> int:
     conn = database.init_db()
     reporter = fleet_governance_reports.FleetGovernanceReporter(conn)
     report = reporter.build_report()
-    report_id = None
+    report_id = reporter.save_report(report)
     markdown_path = None
     if "--save-report" in args:
-        report_id = reporter.save_report(report)
         markdown_path = reporter.save_markdown_report(report_id).report_path
     _print_fleet_governance(report, report_id=report_id, markdown_path=markdown_path)
     return 0
@@ -9433,7 +9432,7 @@ def _cmd_fleet_governance_reports(args) -> int:
     rows = database.list_fleet_governance_reports(conn)
     _rule(f"FLEET GOVERNANCE REPORTS ({len(rows)})")
     if not rows:
-        print("(none) — run: python3 main.py --fleet-governance-report --save-report")
+        print("(none) — run: python3 main.py --fleet-governance-report")
         return 0
     for row in rows:
         md = database.get_fleet_governance_markdown_report(conn, row["id"])
@@ -9646,10 +9645,9 @@ def _cmd_governance_trends(args) -> int:
     conn = database.init_db()
     tracker = governance_trends.GovernanceTrendTracker(conn)
     snapshot = tracker.build_snapshot()
-    snapshot_id = None
+    snapshot_id = tracker.save_snapshot(snapshot)
     markdown_path = None
     if "--save-report" in args:
-        snapshot_id = tracker.save_snapshot(snapshot)
         markdown_path = tracker.save_markdown_report(snapshot_id).report_path
     _print_trend_snapshot(snapshot, snapshot_id=snapshot_id,
                           markdown_path=markdown_path)
@@ -9661,7 +9659,7 @@ def _cmd_governance_trend_snapshots(args) -> int:
     rows = database.list_governance_trend_snapshots(conn)
     _rule(f"GOVERNANCE TREND SNAPSHOTS ({len(rows)})")
     if not rows:
-        print("(none) — run: python3 main.py --governance-trends --save-report")
+        print("(none) — run: python3 main.py --governance-trends")
         return 0
     for row in rows:
         md = database.get_governance_trend_markdown_report(conn, row["id"])

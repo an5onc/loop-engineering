@@ -5718,6 +5718,13 @@ def get_governance_review_item(conn, item_id):
         "SELECT * FROM governance_review_items WHERE id=?", (item_id,)).fetchone()
 
 
+def get_governance_review_item_for_finding(conn, evaluation_id, finding_id):
+    return conn.execute(
+        "SELECT * FROM governance_review_items "
+        "WHERE evaluation_id=? AND finding_id=? ORDER BY id LIMIT 1",
+        (evaluation_id, finding_id)).fetchone()
+
+
 def list_governance_review_items(conn, status=None, limit=200):
     if status:
         return conn.execute(

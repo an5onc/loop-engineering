@@ -91,6 +91,19 @@ class GovernanceEvaluationTests(unittest.TestCase):
         self.assertEqual(report.waived_findings, 0)
         self.assertEqual(report.failed_findings, 1)
 
+    def test_malformed_expiry_waiver_does_not_suppress(self):
+        import shutil
+        self.registry.register_project("alpha", self.a)
+        shutil.rmtree(self.a)
+        policy = self._policy(["not_stale"])
+        sig = f"{policy.policy_key}::not_stale::alpha"
+        database.save_governance_waiver(
+            self.conn, sig, policy.policy_key, "not_stale", "alpha", "temp",
+            "owner", "not-a-date", "active", None, None)
+        report = self.evaluation.GovernanceEvaluationEngine(self.conn).evaluate()
+        self.assertEqual(report.waived_findings, 0)
+        self.assertEqual(report.failed_findings, 1)
+
     def test_revoked_waiver_does_not_suppress(self):
         import shutil
         self.registry.register_project("alpha", self.a)

@@ -85,14 +85,16 @@ class FleetGovernanceReportTests(unittest.TestCase):
         self.assertEqual(rep.returncode, 0, rep.stderr)
         self.assertIn("FLEET GOVERNANCE REPORT", rep.stdout)
 
+        conn = database.init_db(db_path)
+        self.addCleanup(conn.close)
+        self.assertEqual(len(database.list_fleet_governance_reports(conn)), 1)
+
         saved = _run_cli(["--fleet-governance-report", "--save-report"], cwd, env)
         self.assertEqual(saved.returncode, 0, saved.stderr)
 
         lst = _run_cli(["--fleet-governance-reports"], cwd, env)
         self.assertEqual(lst.returncode, 0, lst.stderr)
 
-        conn = database.init_db(db_path)
-        self.addCleanup(conn.close)
         rid = database.list_fleet_governance_reports(conn)[0]["id"]
         show = _run_cli(["--fleet-governance-report-show", str(rid)], cwd, env)
         self.assertEqual(show.returncode, 0, show.stderr)
