@@ -1,4 +1,130 @@
-# Loop Engineering — Stage 8
+# Loop Engineering — Stage 9
+
+## What's new in 9 — Controlled Cross-Project Execution Planning
+
+Stage 9 builds on Stage 7 multi-project metadata and Stage 8 governance to
+produce reviewable cross-project execution plans. It remains **planning-only**:
+commands are proposed as advisory text, dry-runs validate metadata gates,
+approval records are explicit, and handoff packets are portable. Nothing in
+Stage 9 executes commands, calls Ollama, creates loops/jobs, commits, reads
+protected file contents, or writes registered project roots.
+
+### 9.0 Execution intent registry
+
+Records explicit operator intent from a cross-project plan, governance action
+plan, or manual request.
+
+```bash
+python3 main.py --create-cross-project-execution-intent --source-type manual --source-id 0 --title "Manual execution planning" --owner operator
+python3 main.py --cross-project-execution-intents
+python3 main.py --cross-project-execution-intent INTENT_ID
+```
+
+### 9.1 Execution readiness
+
+Classifies registered projects as ready or blocked using registry, validation,
+and governance metadata only.
+
+```bash
+python3 main.py --cross-project-execution-readiness INTENT_ID --save-report
+python3 main.py --cross-project-execution-readiness-reports
+python3 main.py --cross-project-execution-readiness-show REPORT_ID
+```
+
+### 9.2 Execution plan builder
+
+Builds ordered, gated per-project execution steps with approvals, rollback
+requirements, validation requirements, and advisory commands.
+
+```bash
+python3 main.py --plan-cross-project-execution INTENT_ID --readiness REPORT_ID
+python3 main.py --cross-project-execution-plans
+python3 main.py --cross-project-execution-plan PLAN_ID
+```
+
+### 9.3 Advisory command proposals
+
+Stores per-project advisory command proposals. These are metadata records, not
+jobs, and are never executed by Stage 9.
+
+```bash
+python3 main.py --propose-cross-project-execution-commands PLAN_ID
+python3 main.py --cross-project-execution-command-proposals
+python3 main.py --cross-project-execution-command-proposal PROPOSAL_ID
+```
+
+### 9.4 Dry-run validator
+
+Validates the execution plan and command proposals before any approval request.
+Failed or blocked dry-runs prevent approval handoff.
+
+```bash
+python3 main.py --dry-run-cross-project-execution PLAN_ID
+python3 main.py --cross-project-execution-dry-runs
+python3 main.py --cross-project-execution-dry-run DRY_RUN_ID
+```
+
+### 9.5 Human approval metadata
+
+Creates approval records only when the referenced dry-run passed. Approval does
+not execute anything.
+
+```bash
+python3 main.py --request-cross-project-execution-approval PLAN_ID --dry-run DRY_RUN_ID
+python3 main.py --cross-project-execution-approvals
+python3 main.py --cross-project-execution-approval APPROVAL_ID
+python3 main.py --set-cross-project-execution-approval APPROVAL_ID approved
+```
+
+### 9.6 Execution handoff packet
+
+Generates a portable packet for a plan with a matching approved approval and
+passing dry-run. Packets exclude protected contents, secrets, local DB snapshots,
+and execution side effects.
+
+```bash
+python3 main.py --handoff-cross-project-execution PLAN_ID --approval APPROVAL_ID
+python3 main.py --cross-project-execution-handoffs
+python3 main.py --cross-project-execution-handoff HANDOFF_ID
+```
+
+### 9.7 Execution planning audit
+
+Audits Stage 9 execution-planning metadata for integrity, blocked dry-runs, and
+safety invariants.
+
+```bash
+python3 main.py --cross-project-execution-audit --save-report
+python3 main.py --cross-project-execution-audits
+python3 main.py --cross-project-execution-audit-show latest
+```
+
+### 9.8 Final Stage 9 audit & Stage 10 readiness
+
+Verifies Stage 9 modules, tables, CLI paths, report guards, and safety
+invariants, and reports Stage 10 readiness. Recommended Stage 10 theme:
+controlled cross-project execution under explicit human approval.
+
+```bash
+python3 main.py --cross-project-stage9-audit --save-report
+python3 main.py --cross-project-stage9-audits
+python3 main.py --cross-project-stage9-audit-show latest
+```
+
+### Stage 9 tests
+
+```bash
+python3 -m unittest \
+  test_cross_project_execution_intents.py \
+  test_cross_project_execution_readiness.py \
+  test_cross_project_execution_plans.py \
+  test_cross_project_execution_commands.py \
+  test_cross_project_execution_dry_run.py \
+  test_cross_project_execution_approvals.py \
+  test_cross_project_execution_handoff.py \
+  test_cross_project_execution_audit.py \
+  test_cross_project_stage9_audit.py
+```
 
 ## What's new in 8 — Multi-Project Governance & Fleet Reporting
 

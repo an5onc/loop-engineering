@@ -1,6 +1,6 @@
 # Loop Engineering Agent Handoff
 
-- Generated at: 2026-07-01T13:10:53
+- Generated at: 2026-07-01T13:38:45
 - Branch: `main`
 - Remote: `https://github.com/an5onc/loop-engineering.git`
 
@@ -56,6 +56,10 @@ These are intentionally local-only and ignored:
 - `governance_evidence_exports/`
 - `multi_project_governance_audit_reports/`
 - `multi_project_stage8_audit_reports/`
+- `cross_project_execution_readiness_reports/`
+- `cross_project_execution_handoff_packets/`
+- `cross_project_execution_audit_reports/`
+- `cross_project_stage9_audit_reports/`
 
 ## Multi-Project Operations (Stage 7)
 
@@ -89,6 +93,22 @@ planner (advisory text only), evidence export, and Stage 8 audits.
 - Fleet / trends / evidence: `--fleet-governance-report`, `--governance-trends`, `--export-governance-evidence`
 - Audit: `--multi-project-governance-audit`, `--multi-project-stage8-audit [--save-report]`
 - No cross-project execution, no hidden command/model runs, no project-root writes.
+
+## Controlled Cross-Project Execution Planning (Stage 9)
+
+Stage 9 turns approved-looking cross-project intent into deterministic
+execution readiness reports, execution plans, advisory command proposals,
+dry-runs, approval requests, portable handoff packets, and audits. It is
+still planning-only: no commands are run and no project roots are written.
+
+- Intent: `--create-cross-project-execution-intent --source-type TYPE --source-id ID --title "..." --owner "..."`
+- Readiness: `--cross-project-execution-readiness INTENT_ID [--save-report]`
+- Plan: `--plan-cross-project-execution INTENT_ID --readiness REPORT_ID`
+- Advisory commands: `--propose-cross-project-execution-commands PLAN_ID`
+- Dry-run / approval: `--dry-run-cross-project-execution PLAN_ID` -> `--request-cross-project-execution-approval PLAN_ID --dry-run DRY_RUN_ID`
+- Handoff: `--handoff-cross-project-execution PLAN_ID --approval APPROVAL_ID`
+- Audit: `--cross-project-execution-audit`, `--cross-project-stage9-audit [--save-report]`
+- No hidden command/model runs, no project-root writes, no external jobs, no auto-commit.
 
 ## Next Agent Checklist
 

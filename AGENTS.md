@@ -102,6 +102,35 @@ fail-closed, and no cross-project execution.
   `multi_project_governance_audit_reports/`,
   `multi_project_stage8_audit_reports/`.
 
+## Controlled Cross-Project Execution Planning (Stage 9)
+
+Stage 9 plans cross-project execution but still does not execute it. The layer
+is metadata-only until a later explicitly approved execution stage.
+
+- Intents, readiness reports, execution plans, command proposals, dry-runs,
+  approvals, handoff packets, and audits never run commands, call models, create
+  loops/jobs, auto-commit, or write registered project roots.
+- Generated command proposals are advisory text only. If a generated command is
+  only advisory, do not execute it unless the user explicitly asks.
+- A Stage 9 approval request is allowed only after a passing dry-run, and an
+  execution handoff is allowed only when an `approved` approval references the
+  same plan and dry-run.
+- Typical flow:
+  `--create-cross-project-execution-intent --source-type TYPE --source-id ID --title "..."`
+  → `--cross-project-execution-readiness INTENT_ID`
+  → `--plan-cross-project-execution INTENT_ID --readiness REPORT_ID`
+  → `--propose-cross-project-execution-commands PLAN_ID`
+  → `--dry-run-cross-project-execution PLAN_ID`
+  → `--request-cross-project-execution-approval PLAN_ID --dry-run DRY_RUN_ID`
+  → `--set-cross-project-execution-approval APPROVAL_ID approved`
+  → `--handoff-cross-project-execution PLAN_ID --approval APPROVAL_ID`
+  → `--cross-project-execution-audit` / `--cross-project-stage9-audit`.
+- Stage 9 generated reports/packets are ignored runtime artifacts (see
+  `.gitignore`): `cross_project_execution_readiness_reports/`,
+  `cross_project_execution_handoff_packets/`,
+  `cross_project_execution_audit_reports/`,
+  `cross_project_stage9_audit_reports/`.
+
 
 <claude-mem-context>
 # Memory Context

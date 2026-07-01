@@ -33,6 +33,10 @@ REQUIRED_IGNORES = [
     "governance_evidence_exports/",
     "multi_project_governance_audit_reports/",
     "multi_project_stage8_audit_reports/",
+    "cross_project_execution_readiness_reports/",
+    "cross_project_execution_handoff_packets/",
+    "cross_project_execution_audit_reports/",
+    "cross_project_stage9_audit_reports/",
 ]
 
 CORE_VERIFICATION = [
@@ -131,6 +135,22 @@ def build_handoff(repo_root="."):
     a("- Fleet / trends / evidence: `--fleet-governance-report`, `--governance-trends`, `--export-governance-evidence`")
     a("- Audit: `--multi-project-governance-audit`, `--multi-project-stage8-audit [--save-report]`")
     a("- No cross-project execution, no hidden command/model runs, no project-root writes.")
+    a("")
+    a("## Controlled Cross-Project Execution Planning (Stage 9)")
+    a("")
+    a("Stage 9 turns approved-looking cross-project intent into deterministic")
+    a("execution readiness reports, execution plans, advisory command proposals,")
+    a("dry-runs, approval requests, portable handoff packets, and audits. It is")
+    a("still planning-only: no commands are run and no project roots are written.")
+    a("")
+    a("- Intent: `--create-cross-project-execution-intent --source-type TYPE --source-id ID --title \"...\" --owner \"...\"`")
+    a("- Readiness: `--cross-project-execution-readiness INTENT_ID [--save-report]`")
+    a("- Plan: `--plan-cross-project-execution INTENT_ID --readiness REPORT_ID`")
+    a("- Advisory commands: `--propose-cross-project-execution-commands PLAN_ID`")
+    a("- Dry-run / approval: `--dry-run-cross-project-execution PLAN_ID` -> `--request-cross-project-execution-approval PLAN_ID --dry-run DRY_RUN_ID`")
+    a("- Handoff: `--handoff-cross-project-execution PLAN_ID --approval APPROVAL_ID`")
+    a("- Audit: `--cross-project-execution-audit`, `--cross-project-stage9-audit [--save-report]`")
+    a("- No hidden command/model runs, no project-root writes, no external jobs, no auto-commit.")
     a("")
     a("## Next Agent Checklist")
     a("")

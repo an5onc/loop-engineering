@@ -1915,6 +1915,253 @@ CREATE TABLE IF NOT EXISTS multi_project_stage8_audit_markdown_reports (
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (stage8_audit_id) REFERENCES multi_project_stage8_audits(id)
 );
+
+-- ===================================================================== --
+-- Stage 9 — Controlled Cross-Project Execution Planning                  --
+-- ===================================================================== --
+
+CREATE TABLE IF NOT EXISTS cross_project_execution_intents (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    source_type TEXT,
+    source_id INTEGER,
+    title TEXT,
+    owner TEXT,
+    status TEXT,
+    summary_json TEXT,
+    details_json TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS cross_project_execution_intent_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    intent_id INTEGER NOT NULL,
+    event_type TEXT,
+    detail TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (intent_id) REFERENCES cross_project_execution_intents(id)
+);
+
+CREATE TABLE IF NOT EXISTS cross_project_execution_readiness_reports (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    intent_id INTEGER NOT NULL,
+    generated_at TEXT,
+    overall_status TEXT,
+    summary_json TEXT,
+    project_results_json TEXT,
+    safety_notes_json TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (intent_id) REFERENCES cross_project_execution_intents(id)
+);
+
+CREATE TABLE IF NOT EXISTS cross_project_execution_readiness_markdown_reports (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    report_id INTEGER NOT NULL,
+    report_path TEXT,
+    report_format TEXT,
+    content_hash TEXT,
+    bytes_written INTEGER,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (report_id) REFERENCES cross_project_execution_readiness_reports(id)
+);
+
+CREATE TABLE IF NOT EXISTS cross_project_execution_plans (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    intent_id INTEGER NOT NULL,
+    readiness_report_id INTEGER NOT NULL,
+    generated_at TEXT,
+    status TEXT,
+    summary TEXT,
+    required_approvals_json TEXT,
+    rollback_requirements_json TEXT,
+    validation_requirements_json TEXT,
+    safety_notes_json TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT,
+    FOREIGN KEY (intent_id) REFERENCES cross_project_execution_intents(id),
+    FOREIGN KEY (readiness_report_id) REFERENCES cross_project_execution_readiness_reports(id)
+);
+
+CREATE TABLE IF NOT EXISTS cross_project_execution_plan_steps (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    plan_id INTEGER NOT NULL,
+    project_key TEXT,
+    phase TEXT,
+    action_summary TEXT,
+    status TEXT,
+    gating_json TEXT,
+    advisory_commands_json TEXT,
+    blocked_reason TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (plan_id) REFERENCES cross_project_execution_plans(id)
+);
+
+CREATE TABLE IF NOT EXISTS cross_project_execution_plan_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    plan_id INTEGER NOT NULL,
+    event_type TEXT,
+    detail TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (plan_id) REFERENCES cross_project_execution_plans(id)
+);
+
+CREATE TABLE IF NOT EXISTS cross_project_execution_command_proposals (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    plan_id INTEGER NOT NULL,
+    step_id INTEGER,
+    project_key TEXT,
+    command_type TEXT,
+    command_text TEXT,
+    allowlist_category TEXT,
+    risk TEXT,
+    requires_approval INTEGER,
+    reason TEXT,
+    status TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (plan_id) REFERENCES cross_project_execution_plans(id)
+);
+
+CREATE TABLE IF NOT EXISTS cross_project_execution_command_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    proposal_id INTEGER NOT NULL,
+    event_type TEXT,
+    detail TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (proposal_id) REFERENCES cross_project_execution_command_proposals(id)
+);
+
+CREATE TABLE IF NOT EXISTS cross_project_execution_dry_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    plan_id INTEGER NOT NULL,
+    generated_at TEXT,
+    overall_status TEXT,
+    total_findings INTEGER,
+    passed_findings INTEGER,
+    warning_findings INTEGER,
+    failed_findings INTEGER,
+    blocked_findings INTEGER,
+    summary TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (plan_id) REFERENCES cross_project_execution_plans(id)
+);
+
+CREATE TABLE IF NOT EXISTS cross_project_execution_dry_run_findings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    dry_run_id INTEGER NOT NULL,
+    plan_id INTEGER NOT NULL,
+    project_key TEXT,
+    status TEXT,
+    category TEXT,
+    message TEXT,
+    evidence TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (dry_run_id) REFERENCES cross_project_execution_dry_runs(id)
+);
+
+CREATE TABLE IF NOT EXISTS cross_project_execution_approval_requests (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    plan_id INTEGER NOT NULL,
+    dry_run_id INTEGER NOT NULL,
+    status TEXT,
+    requested_at TEXT,
+    decided_at TEXT,
+    decided_by TEXT,
+    notes TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (plan_id) REFERENCES cross_project_execution_plans(id),
+    FOREIGN KEY (dry_run_id) REFERENCES cross_project_execution_dry_runs(id)
+);
+
+CREATE TABLE IF NOT EXISTS cross_project_execution_approval_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    approval_id INTEGER NOT NULL,
+    event_type TEXT,
+    detail TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (approval_id) REFERENCES cross_project_execution_approval_requests(id)
+);
+
+CREATE TABLE IF NOT EXISTS cross_project_execution_handoffs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    plan_id INTEGER NOT NULL,
+    approval_id INTEGER NOT NULL,
+    dry_run_id INTEGER,
+    generated_at TEXT,
+    packet_path TEXT,
+    packet_format TEXT,
+    content_hash TEXT,
+    bytes_written INTEGER,
+    status TEXT,
+    projects_json TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (plan_id) REFERENCES cross_project_execution_plans(id),
+    FOREIGN KEY (approval_id) REFERENCES cross_project_execution_approval_requests(id)
+);
+
+CREATE TABLE IF NOT EXISTS cross_project_execution_handoff_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    handoff_id INTEGER NOT NULL,
+    event_type TEXT,
+    detail TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (handoff_id) REFERENCES cross_project_execution_handoffs(id)
+);
+
+CREATE TABLE IF NOT EXISTS cross_project_execution_audits (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    generated_at TEXT,
+    overall_status TEXT,
+    total_checks INTEGER,
+    passed_checks INTEGER,
+    warning_checks INTEGER,
+    failed_checks INTEGER,
+    blocked_checks INTEGER,
+    sections_json TEXT,
+    recommendations_json TEXT,
+    stage10_readiness_json TEXT,
+    safety_notes_json TEXT,
+    next_steps_json TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS cross_project_execution_audit_markdown_reports (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    audit_id INTEGER NOT NULL,
+    report_path TEXT,
+    report_format TEXT,
+    content_hash TEXT,
+    bytes_written INTEGER,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (audit_id) REFERENCES cross_project_execution_audits(id)
+);
+
+CREATE TABLE IF NOT EXISTS cross_project_stage9_audits (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    generated_at TEXT,
+    overall_status TEXT,
+    total_checks INTEGER,
+    passed_checks INTEGER,
+    warning_checks INTEGER,
+    failed_checks INTEGER,
+    blocked_checks INTEGER,
+    sections_json TEXT,
+    recommendations_json TEXT,
+    stage10_readiness_json TEXT,
+    safety_notes_json TEXT,
+    next_steps_json TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS cross_project_stage9_audit_markdown_reports (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    stage9_audit_id INTEGER NOT NULL,
+    report_path TEXT,
+    report_format TEXT,
+    content_hash TEXT,
+    bytes_written INTEGER,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (stage9_audit_id) REFERENCES cross_project_stage9_audits(id)
+);
 """
 
 
@@ -6004,3 +6251,419 @@ def get_multi_project_stage8_audit_markdown_report(conn, audit_id):
     return conn.execute(
         "SELECT * FROM multi_project_stage8_audit_markdown_reports "
         "WHERE stage8_audit_id=? ORDER BY id DESC LIMIT 1", (audit_id,)).fetchone()
+
+
+# ===================================================================== #
+# Stage 9 — Controlled Cross-Project Execution Planning                  #
+# ===================================================================== #
+def save_cross_project_execution_intent(conn, source_type, source_id, title,
+                                        owner, status, summary_json,
+                                        details_json) -> int:
+    now = _gov_now()
+    cur = conn.execute(
+        "INSERT INTO cross_project_execution_intents (source_type, source_id, "
+        "title, owner, status, summary_json, details_json, updated_at) "
+        "VALUES (?,?,?,?,?,?,?,?)",
+        (source_type, source_id, title, owner, status, summary_json,
+         details_json, now))
+    conn.commit()
+    return cur.lastrowid
+
+
+def get_cross_project_execution_intent(conn, intent_id):
+    return conn.execute(
+        "SELECT * FROM cross_project_execution_intents WHERE id=?",
+        (intent_id,)).fetchone()
+
+
+def list_cross_project_execution_intents(conn, limit=50):
+    return conn.execute(
+        "SELECT * FROM cross_project_execution_intents ORDER BY id DESC LIMIT ?",
+        (limit,)).fetchall()
+
+
+def update_cross_project_execution_intent_status(conn, intent_id, status) -> bool:
+    cur = conn.execute(
+        "UPDATE cross_project_execution_intents SET status=?, updated_at=? "
+        "WHERE id=?", (status, _gov_now(), intent_id))
+    conn.commit()
+    return cur.rowcount > 0
+
+
+def save_cross_project_execution_intent_event(conn, intent_id, event_type,
+                                              detail=None) -> int:
+    cur = conn.execute(
+        "INSERT INTO cross_project_execution_intent_events (intent_id, event_type, "
+        "detail) VALUES (?,?,?)", (intent_id, event_type, detail))
+    conn.commit()
+    return cur.lastrowid
+
+
+def list_cross_project_execution_intent_events(conn, intent_id, limit=100):
+    return conn.execute(
+        "SELECT * FROM cross_project_execution_intent_events WHERE intent_id=? "
+        "ORDER BY id DESC LIMIT ?", (intent_id, limit)).fetchall()
+
+
+def save_cross_project_execution_readiness_report(
+        conn, intent_id, generated_at, overall_status, summary_json,
+        project_results_json, safety_notes_json) -> int:
+    cur = conn.execute(
+        "INSERT INTO cross_project_execution_readiness_reports (intent_id, "
+        "generated_at, overall_status, summary_json, project_results_json, "
+        "safety_notes_json) VALUES (?,?,?,?,?,?)",
+        (intent_id, generated_at, overall_status, summary_json,
+         project_results_json, safety_notes_json))
+    conn.commit()
+    return cur.lastrowid
+
+
+def get_cross_project_execution_readiness_report(conn, report_id):
+    return conn.execute(
+        "SELECT * FROM cross_project_execution_readiness_reports WHERE id=?",
+        (report_id,)).fetchone()
+
+
+def list_cross_project_execution_readiness_reports(conn, limit=50):
+    return conn.execute(
+        "SELECT * FROM cross_project_execution_readiness_reports "
+        "ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
+
+
+def save_cross_project_execution_readiness_markdown_report(
+        conn, report_id, report_path, report_format, content_hash,
+        bytes_written) -> int:
+    cur = conn.execute(
+        "INSERT INTO cross_project_execution_readiness_markdown_reports "
+        "(report_id, report_path, report_format, content_hash, bytes_written) "
+        "VALUES (?,?,?,?,?)",
+        (report_id, report_path, report_format, content_hash, bytes_written))
+    conn.commit()
+    return cur.lastrowid
+
+
+def get_cross_project_execution_readiness_markdown_report(conn, report_id):
+    return conn.execute(
+        "SELECT * FROM cross_project_execution_readiness_markdown_reports "
+        "WHERE report_id=? ORDER BY id DESC LIMIT 1", (report_id,)).fetchone()
+
+
+def save_cross_project_execution_plan(conn, intent_id, readiness_report_id,
+                                      generated_at, status, summary,
+                                      required_approvals_json,
+                                      rollback_requirements_json,
+                                      validation_requirements_json,
+                                      safety_notes_json) -> int:
+    now = _gov_now()
+    cur = conn.execute(
+        "INSERT INTO cross_project_execution_plans (intent_id, "
+        "readiness_report_id, generated_at, status, summary, "
+        "required_approvals_json, rollback_requirements_json, "
+        "validation_requirements_json, safety_notes_json, updated_at) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?)",
+        (intent_id, readiness_report_id, generated_at, status, summary,
+         required_approvals_json, rollback_requirements_json,
+         validation_requirements_json, safety_notes_json, now))
+    conn.commit()
+    return cur.lastrowid
+
+
+def get_cross_project_execution_plan(conn, plan_id):
+    return conn.execute(
+        "SELECT * FROM cross_project_execution_plans WHERE id=?",
+        (plan_id,)).fetchone()
+
+
+def list_cross_project_execution_plans(conn, limit=50):
+    return conn.execute(
+        "SELECT * FROM cross_project_execution_plans ORDER BY id DESC LIMIT ?",
+        (limit,)).fetchall()
+
+
+def save_cross_project_execution_plan_step(
+        conn, plan_id, project_key, phase, action_summary, status, gating_json,
+        advisory_commands_json, blocked_reason=None) -> int:
+    cur = conn.execute(
+        "INSERT INTO cross_project_execution_plan_steps (plan_id, project_key, "
+        "phase, action_summary, status, gating_json, advisory_commands_json, "
+        "blocked_reason) VALUES (?,?,?,?,?,?,?,?)",
+        (plan_id, project_key, phase, action_summary, status, gating_json,
+         advisory_commands_json, blocked_reason))
+    conn.commit()
+    return cur.lastrowid
+
+
+def list_cross_project_execution_plan_steps(conn, plan_id):
+    return conn.execute(
+        "SELECT * FROM cross_project_execution_plan_steps WHERE plan_id=? "
+        "ORDER BY id", (plan_id,)).fetchall()
+
+
+def save_cross_project_execution_plan_event(conn, plan_id, event_type,
+                                            detail=None) -> int:
+    cur = conn.execute(
+        "INSERT INTO cross_project_execution_plan_events (plan_id, event_type, "
+        "detail) VALUES (?,?,?)", (plan_id, event_type, detail))
+    conn.commit()
+    return cur.lastrowid
+
+
+def save_cross_project_execution_command_proposal(
+        conn, plan_id, step_id, project_key, command_type, command_text,
+        allowlist_category, risk, requires_approval, reason, status) -> int:
+    cur = conn.execute(
+        "INSERT INTO cross_project_execution_command_proposals (plan_id, step_id, "
+        "project_key, command_type, command_text, allowlist_category, risk, "
+        "requires_approval, reason, status) VALUES (?,?,?,?,?,?,?,?,?,?)",
+        (plan_id, step_id, project_key, command_type, command_text,
+         allowlist_category, risk, 1 if requires_approval else 0, reason, status))
+    conn.commit()
+    return cur.lastrowid
+
+
+def get_cross_project_execution_command_proposal(conn, proposal_id):
+    return conn.execute(
+        "SELECT * FROM cross_project_execution_command_proposals WHERE id=?",
+        (proposal_id,)).fetchone()
+
+
+def list_cross_project_execution_command_proposals(conn, plan_id=None, limit=200):
+    if plan_id is not None:
+        return conn.execute(
+            "SELECT * FROM cross_project_execution_command_proposals "
+            "WHERE plan_id=? ORDER BY id LIMIT ?", (plan_id, limit)).fetchall()
+    return conn.execute(
+        "SELECT * FROM cross_project_execution_command_proposals "
+        "ORDER BY id LIMIT ?", (limit,)).fetchall()
+
+
+def save_cross_project_execution_command_event(conn, proposal_id, event_type,
+                                               detail=None) -> int:
+    cur = conn.execute(
+        "INSERT INTO cross_project_execution_command_events (proposal_id, "
+        "event_type, detail) VALUES (?,?,?)",
+        (proposal_id, event_type, detail))
+    conn.commit()
+    return cur.lastrowid
+
+
+def save_cross_project_execution_dry_run(
+        conn, plan_id, generated_at, overall_status, total_findings,
+        passed_findings, warning_findings, failed_findings, blocked_findings,
+        summary) -> int:
+    cur = conn.execute(
+        "INSERT INTO cross_project_execution_dry_runs (plan_id, generated_at, "
+        "overall_status, total_findings, passed_findings, warning_findings, "
+        "failed_findings, blocked_findings, summary) VALUES (?,?,?,?,?,?,?,?,?)",
+        (plan_id, generated_at, overall_status, total_findings, passed_findings,
+         warning_findings, failed_findings, blocked_findings, summary))
+    conn.commit()
+    return cur.lastrowid
+
+
+def get_cross_project_execution_dry_run(conn, dry_run_id):
+    return conn.execute(
+        "SELECT * FROM cross_project_execution_dry_runs WHERE id=?",
+        (dry_run_id,)).fetchone()
+
+
+def list_cross_project_execution_dry_runs(conn, plan_id=None, limit=50):
+    if plan_id is not None:
+        return conn.execute(
+            "SELECT * FROM cross_project_execution_dry_runs WHERE plan_id=? "
+            "ORDER BY id DESC LIMIT ?", (plan_id, limit)).fetchall()
+    return conn.execute(
+        "SELECT * FROM cross_project_execution_dry_runs ORDER BY id DESC LIMIT ?",
+        (limit,)).fetchall()
+
+
+def save_cross_project_execution_dry_run_finding(
+        conn, dry_run_id, plan_id, project_key, status, category, message,
+        evidence) -> int:
+    cur = conn.execute(
+        "INSERT INTO cross_project_execution_dry_run_findings (dry_run_id, "
+        "plan_id, project_key, status, category, message, evidence) "
+        "VALUES (?,?,?,?,?,?,?)",
+        (dry_run_id, plan_id, project_key, status, category, message, evidence))
+    conn.commit()
+    return cur.lastrowid
+
+
+def list_cross_project_execution_dry_run_findings(conn, dry_run_id):
+    return conn.execute(
+        "SELECT * FROM cross_project_execution_dry_run_findings "
+        "WHERE dry_run_id=? ORDER BY id", (dry_run_id,)).fetchall()
+
+
+def save_cross_project_execution_approval_request(
+        conn, plan_id, dry_run_id, status, requested_at) -> int:
+    cur = conn.execute(
+        "INSERT INTO cross_project_execution_approval_requests (plan_id, "
+        "dry_run_id, status, requested_at) VALUES (?,?,?,?)",
+        (plan_id, dry_run_id, status, requested_at))
+    conn.commit()
+    return cur.lastrowid
+
+
+def get_cross_project_execution_approval_request(conn, approval_id):
+    return conn.execute(
+        "SELECT * FROM cross_project_execution_approval_requests WHERE id=?",
+        (approval_id,)).fetchone()
+
+
+def list_cross_project_execution_approval_requests(conn, limit=50):
+    return conn.execute(
+        "SELECT * FROM cross_project_execution_approval_requests "
+        "ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
+
+
+def update_cross_project_execution_approval_request(
+        conn, approval_id, status, decided_at=None, decided_by=None,
+        notes=None) -> bool:
+    cur = conn.execute(
+        "UPDATE cross_project_execution_approval_requests SET status=?, "
+        "decided_at=?, decided_by=?, notes=? WHERE id=?",
+        (status, decided_at, decided_by, notes, approval_id))
+    conn.commit()
+    return cur.rowcount > 0
+
+
+def save_cross_project_execution_approval_event(conn, approval_id, event_type,
+                                                detail=None) -> int:
+    cur = conn.execute(
+        "INSERT INTO cross_project_execution_approval_events (approval_id, "
+        "event_type, detail) VALUES (?,?,?)",
+        (approval_id, event_type, detail))
+    conn.commit()
+    return cur.lastrowid
+
+
+def save_cross_project_execution_handoff(
+        conn, plan_id, approval_id, dry_run_id, generated_at, packet_path,
+        packet_format, content_hash, bytes_written, status, projects_json) -> int:
+    cur = conn.execute(
+        "INSERT INTO cross_project_execution_handoffs (plan_id, approval_id, "
+        "dry_run_id, generated_at, packet_path, packet_format, content_hash, "
+        "bytes_written, status, projects_json) VALUES (?,?,?,?,?,?,?,?,?,?)",
+        (plan_id, approval_id, dry_run_id, generated_at, packet_path,
+         packet_format, content_hash, bytes_written, status, projects_json))
+    conn.commit()
+    return cur.lastrowid
+
+
+def get_cross_project_execution_handoff(conn, handoff_id):
+    return conn.execute(
+        "SELECT * FROM cross_project_execution_handoffs WHERE id=?",
+        (handoff_id,)).fetchone()
+
+
+def list_cross_project_execution_handoffs(conn, limit=50):
+    return conn.execute(
+        "SELECT * FROM cross_project_execution_handoffs ORDER BY id DESC LIMIT ?",
+        (limit,)).fetchall()
+
+
+def save_cross_project_execution_handoff_event(conn, handoff_id, event_type,
+                                               detail=None) -> int:
+    cur = conn.execute(
+        "INSERT INTO cross_project_execution_handoff_events (handoff_id, "
+        "event_type, detail) VALUES (?,?,?)",
+        (handoff_id, event_type, detail))
+    conn.commit()
+    return cur.lastrowid
+
+
+def save_cross_project_execution_audit(
+        conn, generated_at, overall_status, total_checks, passed_checks,
+        warning_checks, failed_checks, blocked_checks, sections_json,
+        recommendations_json, stage10_readiness_json, safety_notes_json,
+        next_steps_json) -> int:
+    cur = conn.execute(
+        "INSERT INTO cross_project_execution_audits (generated_at, overall_status, "
+        "total_checks, passed_checks, warning_checks, failed_checks, "
+        "blocked_checks, sections_json, recommendations_json, "
+        "stage10_readiness_json, safety_notes_json, next_steps_json) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+        (generated_at, overall_status, total_checks, passed_checks, warning_checks,
+         failed_checks, blocked_checks, sections_json, recommendations_json,
+         stage10_readiness_json, safety_notes_json, next_steps_json))
+    conn.commit()
+    return cur.lastrowid
+
+
+def get_cross_project_execution_audit(conn, audit_id):
+    return conn.execute(
+        "SELECT * FROM cross_project_execution_audits WHERE id=?",
+        (audit_id,)).fetchone()
+
+
+def list_cross_project_execution_audits(conn, limit=20):
+    return conn.execute(
+        "SELECT * FROM cross_project_execution_audits ORDER BY id DESC LIMIT ?",
+        (limit,)).fetchall()
+
+
+def save_cross_project_execution_audit_markdown_report(
+        conn, audit_id, report_path, report_format, content_hash,
+        bytes_written) -> int:
+    cur = conn.execute(
+        "INSERT INTO cross_project_execution_audit_markdown_reports (audit_id, "
+        "report_path, report_format, content_hash, bytes_written) "
+        "VALUES (?,?,?,?,?)",
+        (audit_id, report_path, report_format, content_hash, bytes_written))
+    conn.commit()
+    return cur.lastrowid
+
+
+def get_cross_project_execution_audit_markdown_report(conn, audit_id):
+    return conn.execute(
+        "SELECT * FROM cross_project_execution_audit_markdown_reports "
+        "WHERE audit_id=? ORDER BY id DESC LIMIT 1", (audit_id,)).fetchone()
+
+
+def save_cross_project_stage9_audit(
+        conn, generated_at, overall_status, total_checks, passed_checks,
+        warning_checks, failed_checks, blocked_checks, sections_json,
+        recommendations_json, stage10_readiness_json, safety_notes_json,
+        next_steps_json) -> int:
+    cur = conn.execute(
+        "INSERT INTO cross_project_stage9_audits (generated_at, overall_status, "
+        "total_checks, passed_checks, warning_checks, failed_checks, "
+        "blocked_checks, sections_json, recommendations_json, "
+        "stage10_readiness_json, safety_notes_json, next_steps_json) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+        (generated_at, overall_status, total_checks, passed_checks, warning_checks,
+         failed_checks, blocked_checks, sections_json, recommendations_json,
+         stage10_readiness_json, safety_notes_json, next_steps_json))
+    conn.commit()
+    return cur.lastrowid
+
+
+def get_cross_project_stage9_audit(conn, audit_id):
+    return conn.execute(
+        "SELECT * FROM cross_project_stage9_audits WHERE id=?",
+        (audit_id,)).fetchone()
+
+
+def list_cross_project_stage9_audits(conn, limit=20):
+    return conn.execute(
+        "SELECT * FROM cross_project_stage9_audits ORDER BY id DESC LIMIT ?",
+        (limit,)).fetchall()
+
+
+def save_cross_project_stage9_audit_markdown_report(
+        conn, stage9_audit_id, report_path, report_format, content_hash,
+        bytes_written) -> int:
+    cur = conn.execute(
+        "INSERT INTO cross_project_stage9_audit_markdown_reports "
+        "(stage9_audit_id, report_path, report_format, content_hash, bytes_written) "
+        "VALUES (?,?,?,?,?)",
+        (stage9_audit_id, report_path, report_format, content_hash, bytes_written))
+    conn.commit()
+    return cur.lastrowid
+
+
+def get_cross_project_stage9_audit_markdown_report(conn, audit_id):
+    return conn.execute(
+        "SELECT * FROM cross_project_stage9_audit_markdown_reports "
+        "WHERE stage9_audit_id=? ORDER BY id DESC LIMIT 1", (audit_id,)).fetchone()

@@ -78,6 +78,15 @@ import governance_action_planner
 import governance_evidence_export
 import multi_project_governance_audit
 import multi_project_stage8_audit
+import cross_project_execution_intents
+import cross_project_execution_readiness
+import cross_project_execution_plans
+import cross_project_execution_commands
+import cross_project_execution_dry_run
+import cross_project_execution_approvals
+import cross_project_execution_handoff
+import cross_project_execution_audit
+import cross_project_stage9_audit
 from loop_engine import LoopEngine
 
 USAGE = """Loop Engineering — orchestrates local Ollama models in a safe
@@ -254,6 +263,27 @@ GOVERNANCE & FLEET REPORTING (Stage 8, metadata-only, fail-closed):
   --multi-project-governance-audits / --multi-project-governance-audit-show AUDIT_ID|latest
   --multi-project-stage8-audit [--save-report]
   --multi-project-stage8-audits / --multi-project-stage8-audit-show AUDIT_ID|latest
+
+CONTROLLED CROSS-PROJECT EXECUTION PLANNING (Stage 9, no execution):
+  --create-cross-project-execution-intent --source-type TYPE --source-id ID --title "..." --owner "..."
+  --cross-project-execution-intents / --cross-project-execution-intent INTENT_ID
+  --cross-project-execution-readiness INTENT_ID [--save-report]
+  --cross-project-execution-readiness-reports / --cross-project-execution-readiness-show REPORT_ID|latest
+  --plan-cross-project-execution INTENT_ID --readiness REPORT_ID
+  --cross-project-execution-plans / --cross-project-execution-plan PLAN_ID
+  --propose-cross-project-execution-commands PLAN_ID
+  --cross-project-execution-command-proposals / --cross-project-execution-command-proposal PROPOSAL_ID
+  --dry-run-cross-project-execution PLAN_ID
+  --cross-project-execution-dry-runs / --cross-project-execution-dry-run DRY_RUN_ID
+  --request-cross-project-execution-approval PLAN_ID --dry-run DRY_RUN_ID
+  --cross-project-execution-approvals / --cross-project-execution-approval APPROVAL_ID
+  --set-cross-project-execution-approval APPROVAL_ID approved|rejected|cancelled
+  --handoff-cross-project-execution PLAN_ID --approval APPROVAL_ID
+  --cross-project-execution-handoffs / --cross-project-execution-handoff HANDOFF_ID
+  --cross-project-execution-audit [--save-report]
+  --cross-project-execution-audits / --cross-project-execution-audit-show AUDIT_ID|latest
+  --cross-project-stage9-audit [--save-report]
+  --cross-project-stage9-audits / --cross-project-stage9-audit-show AUDIT_ID|latest
   --help, -h                  show this help
 
 Resume is preferred over --import-external-completion (kept for compatibility).
@@ -9965,6 +9995,679 @@ def _cmd_multi_project_stage8_audit_show(args) -> int:
     return 0
 
 
+# ===================================================================== #
+# Stage 9 — Controlled Cross-Project Execution Planning                  #
+# ===================================================================== #
+def _latest_execution_intent_id(conn):
+    rows = database.list_cross_project_execution_intents(conn, limit=1)
+    return rows[0]["id"] if rows else None
+
+
+def _latest_execution_readiness_id(conn):
+    rows = database.list_cross_project_execution_readiness_reports(conn, limit=1)
+    return rows[0]["id"] if rows else None
+
+
+def _latest_execution_plan_id(conn):
+    rows = database.list_cross_project_execution_plans(conn, limit=1)
+    return rows[0]["id"] if rows else None
+
+
+def _latest_execution_dry_run_id(conn):
+    rows = database.list_cross_project_execution_dry_runs(conn, limit=1)
+    return rows[0]["id"] if rows else None
+
+
+def _latest_execution_approval_id(conn):
+    rows = database.list_cross_project_execution_approval_requests(conn, limit=1)
+    return rows[0]["id"] if rows else None
+
+
+def _latest_execution_handoff_id(conn):
+    rows = database.list_cross_project_execution_handoffs(conn, limit=1)
+    return rows[0]["id"] if rows else None
+
+
+def _latest_execution_audit_id(conn):
+    rows = database.list_cross_project_execution_audits(conn, limit=1)
+    return rows[0]["id"] if rows else None
+
+
+def _latest_stage9_audit_id(conn):
+    rows = database.list_cross_project_stage9_audits(conn, limit=1)
+    return rows[0]["id"] if rows else None
+
+
+def _print_execution_intent(intent) -> None:
+    print(f"id         : {intent.id}")
+    print(f"source     : {intent.source_type}:{intent.source_id}")
+    print(f"title      : {intent.title}")
+    print(f"owner      : {intent.owner}")
+    print(f"status     : {intent.status}")
+    print(f"summary    : {intent.summary}")
+    print(f"details    : {intent.details}")
+
+
+def _cmd_create_execution_intent(args) -> int:
+    source_type = _flag_val(args, "--source-type")
+    source_id = _flag_val(args, "--source-id")
+    title = _flag_val(args, "--title")
+    owner = _flag_val(args, "--owner")
+    if source_type is None or source_id is None or title is None or owner is None:
+        print("ERROR: --create-cross-project-execution-intent requires "
+              "--source-type, --source-id, --title, and --owner", file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    try:
+        intent = cross_project_execution_intents.CrossProjectExecutionIntentRegistry(
+            conn).create_intent(source_type, source_id, title, owner)
+    except ValueError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    _rule("CROSS-PROJECT EXECUTION INTENT")
+    _print_execution_intent(intent)
+    return 0
+
+
+def _cmd_execution_intents(args) -> int:
+    conn = database.init_db()
+    rows = database.list_cross_project_execution_intents(conn)
+    _rule(f"CROSS-PROJECT EXECUTION INTENTS ({len(rows)})")
+    if not rows:
+        print("(none)")
+    for row in rows:
+        print(f"#{row['id']} [{row['status']}] {row['source_type']}:{row['source_id']} "
+              f"owner={row['owner']} title={row['title']}")
+    return 0
+
+
+def _cmd_execution_intent(args) -> int:
+    if not args:
+        print("ERROR: --cross-project-execution-intent needs an INTENT_ID",
+              file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    try:
+        intent_id = _parse_id_or_latest(
+            conn, args[0], _latest_execution_intent_id, "execution intent")
+    except (TypeError, ValueError):
+        print("ERROR: INTENT_ID must be an integer or 'latest'", file=sys.stderr)
+        return 1
+    intent = cross_project_execution_intents.CrossProjectExecutionIntentRegistry(
+        conn).get_intent(intent_id)
+    if intent is None:
+        print(f"ERROR: no execution intent {args[0]}", file=sys.stderr)
+        return 1
+    _rule(f"CROSS-PROJECT EXECUTION INTENT #{intent.id}")
+    _print_execution_intent(intent)
+    return 0
+
+
+def _print_execution_readiness(report, markdown_path=None) -> None:
+    _rule("CROSS-PROJECT EXECUTION READINESS")
+    print(f"report id     : {report.id}")
+    print(f"intent id     : {report.intent_id}")
+    print(f"overall status: {report.overall_status}")
+    print(f"summary       : {report.summary}")
+    if markdown_path:
+        print(f"markdown      : {markdown_path}")
+    _rule("PROJECTS")
+    for item in report.project_results:
+        print(f"- {item.get('project_key')}: {item.get('status')} "
+              f"blockers={item.get('blockers', [])}")
+    _rule("SAFETY NOTES")
+    _print_lines(report.safety_notes)
+
+
+def _cmd_execution_readiness(args) -> int:
+    if not args or args[0].startswith("--"):
+        print("ERROR: --cross-project-execution-readiness needs an INTENT_ID",
+              file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    try:
+        intent_id = _parse_id_or_latest(
+            conn, args[0], _latest_execution_intent_id, "execution intent")
+        resolver = cross_project_execution_readiness.CrossProjectExecutionReadinessResolver(conn)
+        report = resolver.resolve(intent_id)
+        markdown_path = None
+        if "--save-report" in args:
+            markdown_path = resolver.save_markdown_report(report.id).report_path
+    except (TypeError, ValueError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    _print_execution_readiness(report, markdown_path=markdown_path)
+    return 0
+
+
+def _cmd_execution_readiness_reports(args) -> int:
+    conn = database.init_db()
+    rows = database.list_cross_project_execution_readiness_reports(conn)
+    _rule(f"CROSS-PROJECT EXECUTION READINESS REPORTS ({len(rows)})")
+    if not rows:
+        print("(none)")
+    for row in rows:
+        print(f"#{row['id']} intent={row['intent_id']} "
+              f"status={row['overall_status']} {row['generated_at']}")
+    return 0
+
+
+def _cmd_execution_readiness_show(args) -> int:
+    if not args:
+        print("ERROR: --cross-project-execution-readiness-show needs REPORT_ID|latest",
+              file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    try:
+        report_id = _parse_id_or_latest(
+            conn, args[0], _latest_execution_readiness_id,
+            "execution readiness report")
+    except (TypeError, ValueError):
+        print("ERROR: REPORT_ID must be an integer or 'latest'", file=sys.stderr)
+        return 1
+    resolver = cross_project_execution_readiness.CrossProjectExecutionReadinessResolver(conn)
+    report = resolver.get_report(report_id)
+    if report is None:
+        print(f"ERROR: no execution readiness report {args[0]}", file=sys.stderr)
+        return 1
+    md = database.get_cross_project_execution_readiness_markdown_report(conn, report_id)
+    _print_execution_readiness(report, markdown_path=md["report_path"] if md else None)
+    return 0
+
+
+def _print_execution_plan(plan) -> None:
+    _rule("CROSS-PROJECT EXECUTION PLAN")
+    print(f"plan id      : {plan.id}")
+    print(f"intent id    : {plan.intent_id}")
+    print(f"readiness id : {plan.readiness_report_id}")
+    print(f"status       : {plan.status}")
+    print(f"summary      : {plan.summary}")
+    _rule("STEPS")
+    for step in plan.steps:
+        print(f"- #{step.id} {step.project_key} [{step.status}] {step.phase}")
+        print(f"  action : {step.action_summary}")
+        if step.blocked_reason:
+            print(f"  blocked: {step.blocked_reason}")
+        for cmd in step.advisory_commands:
+            print(f"  advisory: {cmd}")
+    _rule("REQUIRED APPROVALS")
+    _print_lines(plan.required_approvals)
+
+
+def _cmd_plan_cross_project_execution(args) -> int:
+    if not args or args[0].startswith("--"):
+        print("ERROR: --plan-cross-project-execution needs INTENT_ID --readiness REPORT_ID",
+              file=sys.stderr)
+        return 1
+    readiness_arg = _flag_val(args, "--readiness")
+    if readiness_arg is None:
+        print("ERROR: --plan-cross-project-execution requires --readiness REPORT_ID",
+              file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    try:
+        intent_id = _parse_id_or_latest(
+            conn, args[0], _latest_execution_intent_id, "execution intent")
+        readiness_id = _parse_id_or_latest(
+            conn, readiness_arg, _latest_execution_readiness_id,
+            "execution readiness report")
+        plan = cross_project_execution_plans.CrossProjectExecutionPlanBuilder(
+            conn).build_plan(intent_id, readiness_id)
+    except (TypeError, ValueError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    _print_execution_plan(plan)
+    return 0
+
+
+def _cmd_execution_plans(args) -> int:
+    conn = database.init_db()
+    rows = database.list_cross_project_execution_plans(conn)
+    _rule(f"CROSS-PROJECT EXECUTION PLANS ({len(rows)})")
+    if not rows:
+        print("(none)")
+    for row in rows:
+        print(f"#{row['id']} intent={row['intent_id']} readiness="
+              f"{row['readiness_report_id']} status={row['status']}")
+    return 0
+
+
+def _cmd_execution_plan(args) -> int:
+    if not args:
+        print("ERROR: --cross-project-execution-plan needs PLAN_ID|latest",
+              file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    try:
+        plan_id = _parse_id_or_latest(
+            conn, args[0], _latest_execution_plan_id, "execution plan")
+    except (TypeError, ValueError):
+        print("ERROR: PLAN_ID must be an integer or 'latest'", file=sys.stderr)
+        return 1
+    plan = cross_project_execution_plans.CrossProjectExecutionPlanBuilder(
+        conn).get_plan(plan_id)
+    if plan is None:
+        print(f"ERROR: no execution plan {args[0]}", file=sys.stderr)
+        return 1
+    _print_execution_plan(plan)
+    return 0
+
+
+def _cmd_propose_execution_commands(args) -> int:
+    if not args:
+        print("ERROR: --propose-cross-project-execution-commands needs PLAN_ID",
+              file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    try:
+        plan_id = _parse_id_or_latest(
+            conn, args[0], _latest_execution_plan_id, "execution plan")
+        proposals = cross_project_execution_commands.CrossProjectExecutionCommandProposer(
+            conn).propose(plan_id)
+    except (TypeError, ValueError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    _rule(f"CROSS-PROJECT EXECUTION COMMAND PROPOSALS CREATED ({len(proposals)})")
+    for p in proposals:
+        print(f"#{p.id} plan={p.plan_id} project={p.project_key} "
+              f"type={p.command_type} status={p.status}")
+        print(f"  advisory: {p.command_text}")
+    return 0
+
+
+def _cmd_execution_command_proposals(args) -> int:
+    conn = database.init_db()
+    rows = database.list_cross_project_execution_command_proposals(conn)
+    _rule(f"CROSS-PROJECT EXECUTION COMMAND PROPOSALS ({len(rows)})")
+    if not rows:
+        print("(none)")
+    for row in rows:
+        print(f"#{row['id']} plan={row['plan_id']} project={row['project_key']} "
+              f"type={row['command_type']} status={row['status']}")
+    return 0
+
+
+def _cmd_execution_command_proposal(args) -> int:
+    if not args:
+        print("ERROR: --cross-project-execution-command-proposal needs PROPOSAL_ID",
+              file=sys.stderr)
+        return 1
+    try:
+        proposal_id = int(args[0])
+    except (TypeError, ValueError):
+        print("ERROR: PROPOSAL_ID must be an integer", file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    proposal = cross_project_execution_commands.CrossProjectExecutionCommandProposer(
+        conn).get_proposal(proposal_id)
+    if proposal is None:
+        print(f"ERROR: no execution command proposal {proposal_id}", file=sys.stderr)
+        return 1
+    _rule(f"CROSS-PROJECT EXECUTION COMMAND PROPOSAL #{proposal.id}")
+    print(f"plan id      : {proposal.plan_id}")
+    print(f"project      : {proposal.project_key}")
+    print(f"type         : {proposal.command_type}")
+    print(f"allowlist    : {proposal.allowlist_category}")
+    print(f"risk         : {proposal.risk}")
+    print(f"approval req : {proposal.requires_approval}")
+    print(f"status       : {proposal.status}")
+    print(f"reason       : {proposal.reason}")
+    print(f"advisory     : {proposal.command_text}")
+    return 0
+
+
+def _print_execution_dry_run(report) -> None:
+    _rule("CROSS-PROJECT EXECUTION DRY-RUN")
+    print(f"dry-run id    : {report.id}")
+    print(f"plan id       : {report.plan_id}")
+    print(f"overall status: {report.overall_status}")
+    print(f"summary       : {report.summary}")
+    _rule("FINDINGS")
+    for f in report.findings:
+        print(f"- {f.status}: {f.project_key}/{f.category} — {f.message}")
+
+
+def _cmd_dry_run_execution(args) -> int:
+    if not args:
+        print("ERROR: --dry-run-cross-project-execution needs PLAN_ID",
+              file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    try:
+        plan_id = _parse_id_or_latest(
+            conn, args[0], _latest_execution_plan_id, "execution plan")
+        report = cross_project_execution_dry_run.CrossProjectExecutionDryRunValidator(
+            conn).validate(plan_id)
+    except (TypeError, ValueError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    _print_execution_dry_run(report)
+    return 0
+
+
+def _cmd_execution_dry_runs(args) -> int:
+    conn = database.init_db()
+    rows = database.list_cross_project_execution_dry_runs(conn)
+    _rule(f"CROSS-PROJECT EXECUTION DRY-RUNS ({len(rows)})")
+    if not rows:
+        print("(none)")
+    for row in rows:
+        print(f"#{row['id']} plan={row['plan_id']} status={row['overall_status']} "
+              f"findings={row['total_findings']}")
+    return 0
+
+
+def _cmd_execution_dry_run(args) -> int:
+    if not args:
+        print("ERROR: --cross-project-execution-dry-run needs DRY_RUN_ID|latest",
+              file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    try:
+        dry_run_id = _parse_id_or_latest(
+            conn, args[0], _latest_execution_dry_run_id, "execution dry-run")
+    except (TypeError, ValueError):
+        print("ERROR: DRY_RUN_ID must be an integer or 'latest'", file=sys.stderr)
+        return 1
+    report = cross_project_execution_dry_run.CrossProjectExecutionDryRunValidator(
+        conn).get_dry_run(dry_run_id)
+    if report is None:
+        print(f"ERROR: no execution dry-run {args[0]}", file=sys.stderr)
+        return 1
+    _print_execution_dry_run(report)
+    return 0
+
+
+def _print_execution_approval(approval) -> None:
+    print(f"id          : {approval.id}")
+    print(f"plan id     : {approval.plan_id}")
+    print(f"dry-run id  : {approval.dry_run_id}")
+    print(f"status      : {approval.status}")
+    print(f"requested at: {approval.requested_at}")
+    print(f"decided at  : {approval.decided_at or '(none)'}")
+    print(f"decided by  : {approval.decided_by or '(none)'}")
+    print(f"usable      : {cross_project_execution_approvals.is_usable(approval)}")
+
+
+def _cmd_request_execution_approval(args) -> int:
+    if not args:
+        print("ERROR: --request-cross-project-execution-approval needs PLAN_ID --dry-run ID",
+              file=sys.stderr)
+        return 1
+    dry_run_arg = _flag_val(args, "--dry-run")
+    if dry_run_arg is None:
+        print("ERROR: --request-cross-project-execution-approval requires --dry-run ID",
+              file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    try:
+        plan_id = _parse_id_or_latest(
+            conn, args[0], _latest_execution_plan_id, "execution plan")
+        dry_run_id = _parse_id_or_latest(
+            conn, dry_run_arg, _latest_execution_dry_run_id, "execution dry-run")
+        approval = cross_project_execution_approvals.CrossProjectExecutionApprovalGate(
+            conn).request_approval(plan_id, dry_run_id)
+    except (TypeError, ValueError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    _rule("CROSS-PROJECT EXECUTION APPROVAL REQUEST")
+    _print_execution_approval(approval)
+    return 0
+
+
+def _cmd_execution_approvals(args) -> int:
+    conn = database.init_db()
+    rows = database.list_cross_project_execution_approval_requests(conn)
+    _rule(f"CROSS-PROJECT EXECUTION APPROVALS ({len(rows)})")
+    if not rows:
+        print("(none)")
+    for row in rows:
+        print(f"#{row['id']} plan={row['plan_id']} dry_run={row['dry_run_id']} "
+              f"status={row['status']}")
+    return 0
+
+
+def _cmd_execution_approval(args) -> int:
+    if not args:
+        print("ERROR: --cross-project-execution-approval needs APPROVAL_ID|latest",
+              file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    try:
+        approval_id = _parse_id_or_latest(
+            conn, args[0], _latest_execution_approval_id, "execution approval")
+    except (TypeError, ValueError):
+        print("ERROR: APPROVAL_ID must be an integer or 'latest'", file=sys.stderr)
+        return 1
+    approval = cross_project_execution_approvals.CrossProjectExecutionApprovalGate(
+        conn).get_approval(approval_id)
+    if approval is None:
+        print(f"ERROR: no execution approval {args[0]}", file=sys.stderr)
+        return 1
+    _rule(f"CROSS-PROJECT EXECUTION APPROVAL #{approval.id}")
+    _print_execution_approval(approval)
+    return 0
+
+
+def _cmd_set_execution_approval(args) -> int:
+    if len(args) < 2:
+        print("ERROR: --set-cross-project-execution-approval needs APPROVAL_ID STATUS",
+              file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    try:
+        approval_id = _parse_id_or_latest(
+            conn, args[0], _latest_execution_approval_id, "execution approval")
+        approval = cross_project_execution_approvals.CrossProjectExecutionApprovalGate(
+            conn).set_status(approval_id, args[1])
+    except (TypeError, ValueError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    _rule(f"CROSS-PROJECT EXECUTION APPROVAL #{approval.id}")
+    _print_execution_approval(approval)
+    return 0
+
+
+def _cmd_handoff_execution(args) -> int:
+    if not args:
+        print("ERROR: --handoff-cross-project-execution needs PLAN_ID --approval ID",
+              file=sys.stderr)
+        return 1
+    approval_arg = _flag_val(args, "--approval")
+    if approval_arg is None:
+        print("ERROR: --handoff-cross-project-execution requires --approval ID",
+              file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    try:
+        plan_id = _parse_id_or_latest(
+            conn, args[0], _latest_execution_plan_id, "execution plan")
+        approval_id = _parse_id_or_latest(
+            conn, approval_arg, _latest_execution_approval_id, "execution approval")
+        packet = cross_project_execution_handoff.CrossProjectExecutionHandoffBuilder(
+            conn).create_handoff(plan_id, approval_id)
+    except (TypeError, ValueError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    _rule("CROSS-PROJECT EXECUTION HANDOFF")
+    print(f"handoff id : {packet.id}")
+    print(f"plan id    : {packet.plan_id}")
+    print(f"approval id: {packet.approval_id}")
+    print(f"dry-run id : {packet.dry_run_id}")
+    print(f"packet path: {packet.packet_path}")
+    print(f"projects   : {packet.projects}")
+    return 0
+
+
+def _cmd_execution_handoffs(args) -> int:
+    conn = database.init_db()
+    rows = database.list_cross_project_execution_handoffs(conn)
+    _rule(f"CROSS-PROJECT EXECUTION HANDOFFS ({len(rows)})")
+    if not rows:
+        print("(none)")
+    for row in rows:
+        print(f"#{row['id']} plan={row['plan_id']} approval={row['approval_id']} "
+              f"status={row['status']} {row['packet_path']}")
+    return 0
+
+
+def _cmd_execution_handoff(args) -> int:
+    if not args:
+        print("ERROR: --cross-project-execution-handoff needs HANDOFF_ID|latest",
+              file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    try:
+        handoff_id = _parse_id_or_latest(
+            conn, args[0], _latest_execution_handoff_id, "execution handoff")
+    except (TypeError, ValueError):
+        print("ERROR: HANDOFF_ID must be an integer or 'latest'", file=sys.stderr)
+        return 1
+    packet = cross_project_execution_handoff.CrossProjectExecutionHandoffBuilder(
+        conn).get_handoff(handoff_id)
+    if packet is None:
+        print(f"ERROR: no execution handoff {args[0]}", file=sys.stderr)
+        return 1
+    _rule(f"CROSS-PROJECT EXECUTION HANDOFF #{packet.id}")
+    print(f"plan id    : {packet.plan_id}")
+    print(f"approval id: {packet.approval_id}")
+    print(f"dry-run id : {packet.dry_run_id}")
+    print(f"packet path: {packet.packet_path}")
+    print(f"projects   : {packet.projects}")
+    return 0
+
+
+def _print_execution_audit(report, audit_id=None, markdown_path=None) -> None:
+    _rule("CROSS-PROJECT EXECUTION PLANNING AUDIT")
+    if audit_id is not None:
+        print(f"audit id      : {audit_id}")
+    if markdown_path:
+        print(f"markdown      : {markdown_path}")
+    print(f"overall_status: {report.overall_status}")
+    print(f"total checks  : {report.total_checks} "
+          f"(pass={report.passed_checks} warn={report.warning_checks} "
+          f"fail={report.failed_checks} blocked={report.blocked_checks})")
+    _rule("SECTIONS")
+    for section in report.sections:
+        print(f"- {section.name}: {section.status} ({section.summary})")
+        for check in section.checks:
+            print(f"    {check.status}: {check.name} — {check.message}")
+
+
+def _cmd_execution_audit(args) -> int:
+    conn = database.init_db()
+    engine = cross_project_execution_audit.CrossProjectExecutionAuditEngine(conn)
+    report = engine.build_report()
+    audit_id = engine.save_audit(report)
+    markdown_path = None
+    if "--save-report" in args:
+        markdown_path = engine.save_markdown_report(audit_id, report).report_path
+    _print_execution_audit(report, audit_id=audit_id, markdown_path=markdown_path)
+    return 0
+
+
+def _cmd_execution_audits(args) -> int:
+    conn = database.init_db()
+    rows = database.list_cross_project_execution_audits(conn)
+    _rule(f"CROSS-PROJECT EXECUTION AUDITS ({len(rows)})")
+    if not rows:
+        print("(none)")
+    for row in rows:
+        print(f"#{row['id']} {row['generated_at']} status={row['overall_status']} "
+              f"checks={row['total_checks']}")
+    return 0
+
+
+def _cmd_execution_audit_show(args) -> int:
+    if not args:
+        print("ERROR: --cross-project-execution-audit-show needs AUDIT_ID|latest",
+              file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    try:
+        audit_id = _parse_id_or_latest(
+            conn, args[0], _latest_execution_audit_id, "execution audit")
+    except (TypeError, ValueError):
+        print("ERROR: AUDIT_ID must be an integer or 'latest'", file=sys.stderr)
+        return 1
+    row = database.get_cross_project_execution_audit(conn, audit_id)
+    if row is None:
+        print(f"ERROR: no execution audit {args[0]}", file=sys.stderr)
+        return 1
+    report = cross_project_execution_audit.report_from_row(row)
+    md = database.get_cross_project_execution_audit_markdown_report(conn, audit_id)
+    _print_execution_audit(report, audit_id=audit_id,
+                           markdown_path=md["report_path"] if md else None)
+    return 0
+
+
+def _print_stage9_audit(report, audit_id=None, markdown_path=None) -> None:
+    _rule("STAGE 9 FINAL AUDIT — CONTROLLED CROSS-PROJECT EXECUTION PLANNING")
+    if audit_id is not None:
+        print(f"audit id      : {audit_id}")
+    if markdown_path:
+        print(f"markdown      : {markdown_path}")
+    print(f"overall_status: {report.overall_status}")
+    print(f"total checks  : {report.total_checks} "
+          f"(pass={report.passed_checks} warn={report.warning_checks} "
+          f"fail={report.failed_checks} blocked={report.blocked_checks})")
+    print(f"stage 10 ready: {report.stage10_readiness.get('ready')}")
+    _rule("SECTIONS")
+    for section in report.sections:
+        print(f"- {section.name}: {section.status} ({section.summary})")
+        for check in section.checks:
+            print(f"    {check.status}: {check.name}")
+    _rule("STAGE 10 READINESS")
+    print(report.stage10_readiness)
+
+
+def _cmd_stage9_audit(args) -> int:
+    conn = database.init_db()
+    engine = cross_project_stage9_audit.CrossProjectStage9AuditEngine(conn)
+    report = engine.build_report()
+    audit_id = engine.save_audit(report)
+    markdown_path = None
+    if "--save-report" in args:
+        markdown_path = engine.save_markdown_report(audit_id, report).report_path
+    _print_stage9_audit(report, audit_id=audit_id, markdown_path=markdown_path)
+    return 0
+
+
+def _cmd_stage9_audits(args) -> int:
+    conn = database.init_db()
+    rows = database.list_cross_project_stage9_audits(conn)
+    _rule(f"STAGE 9 FINAL AUDITS ({len(rows)})")
+    if not rows:
+        print("(none)")
+    for row in rows:
+        print(f"#{row['id']} {row['generated_at']} status={row['overall_status']} "
+              f"checks={row['total_checks']}")
+    return 0
+
+
+def _cmd_stage9_audit_show(args) -> int:
+    if not args:
+        print("ERROR: --cross-project-stage9-audit-show needs AUDIT_ID|latest",
+              file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    try:
+        audit_id = _parse_id_or_latest(
+            conn, args[0], _latest_stage9_audit_id, "Stage 9 audit")
+    except (TypeError, ValueError):
+        print("ERROR: AUDIT_ID must be an integer or 'latest'", file=sys.stderr)
+        return 1
+    row = database.get_cross_project_stage9_audit(conn, audit_id)
+    if row is None:
+        print(f"ERROR: no Stage 9 audit {args[0]}", file=sys.stderr)
+        return 1
+    report = cross_project_stage9_audit.report_from_row(row)
+    md = database.get_cross_project_stage9_audit_markdown_report(conn, audit_id)
+    _print_stage9_audit(report, audit_id=audit_id,
+                        markdown_path=md["report_path"] if md else None)
+    return 0
+
+
 def main() -> int:
     args = sys.argv[1:]
     if args and args[0] in ("--help", "-h", "help"):
@@ -10380,6 +11083,63 @@ def main() -> int:
         return _cmd_multi_project_stage8_audits(args[1:])
     if args and args[0] == "--multi-project-stage8-audit-show":
         return _cmd_multi_project_stage8_audit_show(args[1:])
+    # --- Stage 9: Controlled Cross-Project Execution Planning -------------
+    if args and args[0] == "--create-cross-project-execution-intent":
+        return _cmd_create_execution_intent(args[1:])
+    if args and args[0] == "--cross-project-execution-intents":
+        return _cmd_execution_intents(args[1:])
+    if args and args[0] == "--cross-project-execution-intent":
+        return _cmd_execution_intent(args[1:])
+    if args and args[0] == "--cross-project-execution-readiness":
+        return _cmd_execution_readiness(args[1:])
+    if args and args[0] == "--cross-project-execution-readiness-reports":
+        return _cmd_execution_readiness_reports(args[1:])
+    if args and args[0] == "--cross-project-execution-readiness-show":
+        return _cmd_execution_readiness_show(args[1:])
+    if args and args[0] == "--plan-cross-project-execution":
+        return _cmd_plan_cross_project_execution(args[1:])
+    if args and args[0] == "--cross-project-execution-plans":
+        return _cmd_execution_plans(args[1:])
+    if args and args[0] == "--cross-project-execution-plan":
+        return _cmd_execution_plan(args[1:])
+    if args and args[0] == "--propose-cross-project-execution-commands":
+        return _cmd_propose_execution_commands(args[1:])
+    if args and args[0] == "--cross-project-execution-command-proposals":
+        return _cmd_execution_command_proposals(args[1:])
+    if args and args[0] == "--cross-project-execution-command-proposal":
+        return _cmd_execution_command_proposal(args[1:])
+    if args and args[0] == "--dry-run-cross-project-execution":
+        return _cmd_dry_run_execution(args[1:])
+    if args and args[0] == "--cross-project-execution-dry-runs":
+        return _cmd_execution_dry_runs(args[1:])
+    if args and args[0] == "--cross-project-execution-dry-run":
+        return _cmd_execution_dry_run(args[1:])
+    if args and args[0] == "--request-cross-project-execution-approval":
+        return _cmd_request_execution_approval(args[1:])
+    if args and args[0] == "--cross-project-execution-approvals":
+        return _cmd_execution_approvals(args[1:])
+    if args and args[0] == "--cross-project-execution-approval":
+        return _cmd_execution_approval(args[1:])
+    if args and args[0] == "--set-cross-project-execution-approval":
+        return _cmd_set_execution_approval(args[1:])
+    if args and args[0] == "--handoff-cross-project-execution":
+        return _cmd_handoff_execution(args[1:])
+    if args and args[0] == "--cross-project-execution-handoffs":
+        return _cmd_execution_handoffs(args[1:])
+    if args and args[0] == "--cross-project-execution-handoff":
+        return _cmd_execution_handoff(args[1:])
+    if args and args[0] == "--cross-project-execution-audit":
+        return _cmd_execution_audit(args[1:])
+    if args and args[0] == "--cross-project-execution-audits":
+        return _cmd_execution_audits(args[1:])
+    if args and args[0] == "--cross-project-execution-audit-show":
+        return _cmd_execution_audit_show(args[1:])
+    if args and args[0] == "--cross-project-stage9-audit":
+        return _cmd_stage9_audit(args[1:])
+    if args and args[0] == "--cross-project-stage9-audits":
+        return _cmd_stage9_audits(args[1:])
+    if args and args[0] == "--cross-project-stage9-audit-show":
+        return _cmd_stage9_audit_show(args[1:])
 
     (commit, commit_message, loop_name, overrides, min_conf, workspace_name,
      require_approval, auto_approve_low_risk, approval_mode,

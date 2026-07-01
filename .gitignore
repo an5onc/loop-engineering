@@ -39,3 +39,7 @@ governance_trend_reports/
 governance_evidence_exports/
 multi_project_governance_audit_reports/
 multi_project_stage8_audit_reports/
+cross_project_execution_readiness_reports/
+cross_project_execution_handoff_packets/
+cross_project_execution_audit_reports/
+cross_project_stage9_audit_reports/
