@@ -1,3 +1,80 @@
+# Loop Engineering — Stage 14
+
+## What's new in 14 — Multi-Run Orchestration Sessions
+
+Stage 14 coordinates multiple existing Stage 11/12 orchestration runs as a
+single operator-managed session — with readiness inspection, a deterministic
+advancement planner, shared advisory operator gates, single-step session
+advancement, Stage 13 recovery guidance, reports, and audits.
+
+Stage 14 introduces **no executor**: session advancement delegates to the
+Stage 12 gated advancement engine (Stage 12 → Stage 11 → Stage 10) and
+executes at most one step per invocation. Shared session gates are advisory
+coordination metadata — they never replace per-step confirmation, snapshot,
+cwd, allowlist, execution window, retry authorization, restoration
+preview/confirm, or `--confirm-execution`. The runtime audit verifies against
+module source that no Stage 14 module imports subprocess or calls the
+terminal runner or model client.
+
+### 14.0-14.2 Sessions, membership, shared gates
+
+Sessions are `defined → active → blocked/completed → closed` (closed is
+immutable). A run may be active in only one open session. Gates are
+`defined → approved → revoked` and advisory only.
+
+```bash
+python3 main.py --create-multi-run-session "TITLE" [--by NAME] [--notes TEXT]
+python3 main.py --multi-run-sessions
+python3 main.py --multi-run-session SESSION_ID
+python3 main.py --close-multi-run-session SESSION_ID
+python3 main.py --add-run-to-multi-run-session SESSION_ID RUN_ID
+python3 main.py --remove-run-from-multi-run-session SESSION_ID RUN_ID
+python3 main.py --multi-run-session-members SESSION_ID
+python3 main.py --define-multi-run-gate SESSION_ID --label LABEL
+python3 main.py --approve-multi-run-gate GATE_ID
+python3 main.py --revoke-multi-run-gate GATE_ID
+python3 main.py --multi-run-gates SESSION_ID
+```
+
+### 14.3-14.6 Readiness, planner, session advancement, recovery
+
+Readiness summarizes each member run (steps, window status, retry budget,
+restoration state) and the next operator action. The planner deterministically
+selects the next safest step — and refuses to select execution while any run
+needs restoration or retry authorization. Session advancement requires an
+approved gate plus every existing Stage 10/12 per-step gate, records refusals,
+and executes exactly one step. Recovery status emits the exact manual Stage
+13/12 commands without running any of them.
+
+```bash
+python3 main.py --multi-run-readiness SESSION_ID [--save-report]
+python3 main.py --plan-multi-run-advancement SESSION_ID [--save-report]
+python3 main.py --advance-multi-run-session SESSION_ID --run RUN_ID --step STEP_ID --confirmation CONFIRMATION_ID --snapshot SNAPSHOT_ID --confirm-execution
+python3 main.py --multi-run-recovery-status SESSION_ID [--save-report]
+```
+
+### 14.7-14.9 Reports and audits
+
+```bash
+python3 main.py --multi-run-session-report SESSION_ID --save-report
+python3 main.py --multi-run-session-audit --save-report
+python3 main.py --cross-project-stage14-audit --save-report
+```
+
+### Stage 14 tests
+
+```bash
+python3 -m unittest \
+  test_multi_run_sessions.py \
+  test_multi_run_readiness.py \
+  test_multi_run_planner.py \
+  test_multi_run_advancement.py \
+  test_multi_run_recovery.py \
+  test_multi_run_reports.py \
+  test_multi_run_session_audit.py \
+  test_cross_project_stage14_audit.py
+```
+
 # Loop Engineering — Stage 13
 
 ## What's new in 13 — Operator-Driven Rollback Restoration

@@ -2995,6 +2995,223 @@ CREATE TABLE IF NOT EXISTS cross_project_stage13_audit_markdown_reports (
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (stage13_audit_id) REFERENCES cross_project_stage13_audits(id)
 );
+
+-- ===================================================================== --
+-- Stage 14 — Multi-Run Orchestration Sessions                           --
+-- ===================================================================== --
+
+CREATE TABLE IF NOT EXISTS multi_run_sessions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT,
+    status TEXT,
+    created_by TEXT,
+    notes TEXT,
+    safety_summary TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS multi_run_session_members (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id INTEGER NOT NULL,
+    run_id INTEGER NOT NULL,
+    status TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT,
+    FOREIGN KEY (session_id) REFERENCES multi_run_sessions(id)
+);
+
+CREATE TABLE IF NOT EXISTS multi_run_session_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id INTEGER NOT NULL,
+    event_type TEXT,
+    detail TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (session_id) REFERENCES multi_run_sessions(id)
+);
+
+CREATE TABLE IF NOT EXISTS multi_run_session_gates (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id INTEGER NOT NULL,
+    label TEXT,
+    status TEXT,
+    window_ids_json TEXT,
+    retry_policy_ids_json TEXT,
+    notes TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT,
+    FOREIGN KEY (session_id) REFERENCES multi_run_sessions(id)
+);
+
+CREATE TABLE IF NOT EXISTS multi_run_readiness_reports (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id INTEGER NOT NULL,
+    generated_at TEXT,
+    overall_status TEXT,
+    summary TEXT,
+    next_action TEXT,
+    runs_json TEXT,
+    safety_notes_json TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (session_id) REFERENCES multi_run_sessions(id)
+);
+
+CREATE TABLE IF NOT EXISTS multi_run_readiness_markdown_reports (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    report_id INTEGER NOT NULL,
+    report_path TEXT,
+    report_format TEXT,
+    content_hash TEXT,
+    bytes_written INTEGER,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (report_id) REFERENCES multi_run_readiness_reports(id)
+);
+
+CREATE TABLE IF NOT EXISTS multi_run_planner_reports (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id INTEGER NOT NULL,
+    generated_at TEXT,
+    status TEXT,
+    selected_run_id INTEGER,
+    selected_run_step_id INTEGER,
+    reason TEXT,
+    required_command TEXT,
+    skipped_json TEXT,
+    safety_notes_json TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (session_id) REFERENCES multi_run_sessions(id)
+);
+
+CREATE TABLE IF NOT EXISTS multi_run_planner_markdown_reports (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    report_id INTEGER NOT NULL,
+    report_path TEXT,
+    report_format TEXT,
+    content_hash TEXT,
+    bytes_written INTEGER,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (report_id) REFERENCES multi_run_planner_reports(id)
+);
+
+CREATE TABLE IF NOT EXISTS multi_run_session_advancements (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id INTEGER NOT NULL,
+    run_id INTEGER NOT NULL,
+    run_step_id INTEGER,
+    gate_id INTEGER,
+    gated_advancement_id INTEGER,
+    attempt_id INTEGER,
+    status TEXT,
+    detail TEXT,
+    safety_notes_json TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (session_id) REFERENCES multi_run_sessions(id)
+);
+
+CREATE TABLE IF NOT EXISTS multi_run_recovery_reports (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id INTEGER NOT NULL,
+    generated_at TEXT,
+    overall_status TEXT,
+    summary TEXT,
+    next_action TEXT,
+    entries_json TEXT,
+    safety_notes_json TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (session_id) REFERENCES multi_run_sessions(id)
+);
+
+CREATE TABLE IF NOT EXISTS multi_run_recovery_markdown_reports (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    report_id INTEGER NOT NULL,
+    report_path TEXT,
+    report_format TEXT,
+    content_hash TEXT,
+    bytes_written INTEGER,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (report_id) REFERENCES multi_run_recovery_reports(id)
+);
+
+CREATE TABLE IF NOT EXISTS multi_run_session_reports (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id INTEGER NOT NULL,
+    generated_at TEXT,
+    overall_status TEXT,
+    summary TEXT,
+    next_action TEXT,
+    members_json TEXT,
+    gates_json TEXT,
+    advancements_json TEXT,
+    recovery_json TEXT,
+    safety_notes_json TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (session_id) REFERENCES multi_run_sessions(id)
+);
+
+CREATE TABLE IF NOT EXISTS multi_run_session_markdown_reports (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    report_id INTEGER NOT NULL,
+    report_path TEXT,
+    report_format TEXT,
+    content_hash TEXT,
+    bytes_written INTEGER,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (report_id) REFERENCES multi_run_session_reports(id)
+);
+
+CREATE TABLE IF NOT EXISTS multi_run_session_audits (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    generated_at TEXT,
+    overall_status TEXT,
+    total_checks INTEGER,
+    passed_checks INTEGER,
+    warning_checks INTEGER,
+    failed_checks INTEGER,
+    blocked_checks INTEGER,
+    checks_json TEXT,
+    recommendations_json TEXT,
+    safety_notes_json TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS multi_run_session_audit_markdown_reports (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    audit_id INTEGER NOT NULL,
+    report_path TEXT,
+    report_format TEXT,
+    content_hash TEXT,
+    bytes_written INTEGER,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (audit_id) REFERENCES multi_run_session_audits(id)
+);
+
+CREATE TABLE IF NOT EXISTS cross_project_stage14_audits (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    generated_at TEXT,
+    overall_status TEXT,
+    total_checks INTEGER,
+    passed_checks INTEGER,
+    warning_checks INTEGER,
+    failed_checks INTEGER,
+    blocked_checks INTEGER,
+    checks_json TEXT,
+    recommendations_json TEXT,
+    stage15_readiness_json TEXT,
+    safety_notes_json TEXT,
+    next_steps_json TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS cross_project_stage14_audit_markdown_reports (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    stage14_audit_id INTEGER NOT NULL,
+    report_path TEXT,
+    report_format TEXT,
+    content_hash TEXT,
+    bytes_written INTEGER,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (stage14_audit_id) REFERENCES cross_project_stage14_audits(id)
+);
 """
 
 
@@ -8936,5 +9153,400 @@ def save_cross_project_stage13_audit_markdown_report(
         "(stage13_audit_id, report_path, report_format, content_hash, bytes_written) "
         "VALUES (?,?,?,?,?)",
         (stage13_audit_id, report_path, report_format, content_hash, bytes_written))
+    conn.commit()
+    return cur.lastrowid
+
+
+# ------------------------------------------------------------------------- #
+# Stage 14 — Multi-Run Orchestration Sessions                               #
+# ------------------------------------------------------------------------- #
+
+def save_multi_run_session(conn, title, status, created_by, notes,
+                           safety_summary) -> int:
+    cur = conn.execute(
+        "INSERT INTO multi_run_sessions (title, status, created_by, notes, "
+        "safety_summary, updated_at) VALUES (?,?,?,?,?,?)",
+        (title, status, created_by, notes, safety_summary, _gov_now()))
+    conn.commit()
+    return cur.lastrowid
+
+
+def get_multi_run_session(conn, session_id):
+    return conn.execute(
+        "SELECT * FROM multi_run_sessions WHERE id=?", (session_id,)).fetchone()
+
+
+def list_multi_run_sessions(conn, limit=50):
+    return conn.execute(
+        "SELECT * FROM multi_run_sessions ORDER BY id DESC LIMIT ?",
+        (limit,)).fetchall()
+
+
+def update_multi_run_session_status(conn, session_id, status) -> bool:
+    cur = conn.execute(
+        "UPDATE multi_run_sessions SET status=?, updated_at=? WHERE id=?",
+        (status, _gov_now(), session_id))
+    conn.commit()
+    return cur.rowcount > 0
+
+
+def save_multi_run_session_member(conn, session_id, run_id, status) -> int:
+    cur = conn.execute(
+        "INSERT INTO multi_run_session_members (session_id, run_id, status, "
+        "updated_at) VALUES (?,?,?,?)",
+        (session_id, run_id, status, _gov_now()))
+    conn.commit()
+    return cur.lastrowid
+
+
+def get_multi_run_session_member(conn, member_id):
+    return conn.execute(
+        "SELECT * FROM multi_run_session_members WHERE id=?",
+        (member_id,)).fetchone()
+
+
+def list_multi_run_session_members(conn, session_id=None, run_id=None,
+                                   limit=200):
+    if session_id is not None:
+        return conn.execute(
+            "SELECT * FROM multi_run_session_members WHERE session_id=? "
+            "ORDER BY id LIMIT ?", (session_id, limit)).fetchall()
+    if run_id is not None:
+        return conn.execute(
+            "SELECT * FROM multi_run_session_members WHERE run_id=? "
+            "ORDER BY id LIMIT ?", (run_id, limit)).fetchall()
+    return conn.execute(
+        "SELECT * FROM multi_run_session_members ORDER BY id DESC LIMIT ?",
+        (limit,)).fetchall()
+
+
+def update_multi_run_session_member_status(conn, member_id, status) -> bool:
+    cur = conn.execute(
+        "UPDATE multi_run_session_members SET status=?, updated_at=? WHERE id=?",
+        (status, _gov_now(), member_id))
+    conn.commit()
+    return cur.rowcount > 0
+
+
+def save_multi_run_session_event(conn, session_id, event_type,
+                                 detail=None) -> int:
+    cur = conn.execute(
+        "INSERT INTO multi_run_session_events (session_id, event_type, detail) "
+        "VALUES (?,?,?)", (session_id, event_type, detail))
+    conn.commit()
+    return cur.lastrowid
+
+
+def list_multi_run_session_events(conn, session_id=None, limit=200):
+    if session_id is not None:
+        return conn.execute(
+            "SELECT * FROM multi_run_session_events WHERE session_id=? "
+            "ORDER BY id LIMIT ?", (session_id, limit)).fetchall()
+    return conn.execute(
+        "SELECT * FROM multi_run_session_events ORDER BY id DESC LIMIT ?",
+        (limit,)).fetchall()
+
+
+def save_multi_run_session_gate(conn, session_id, label, status,
+                                window_ids_json, retry_policy_ids_json,
+                                notes) -> int:
+    cur = conn.execute(
+        "INSERT INTO multi_run_session_gates (session_id, label, status, "
+        "window_ids_json, retry_policy_ids_json, notes, updated_at) "
+        "VALUES (?,?,?,?,?,?,?)",
+        (session_id, label, status, window_ids_json, retry_policy_ids_json,
+         notes, _gov_now()))
+    conn.commit()
+    return cur.lastrowid
+
+
+def get_multi_run_session_gate(conn, gate_id):
+    return conn.execute(
+        "SELECT * FROM multi_run_session_gates WHERE id=?",
+        (gate_id,)).fetchone()
+
+
+def list_multi_run_session_gates(conn, session_id=None, limit=100):
+    if session_id is not None:
+        return conn.execute(
+            "SELECT * FROM multi_run_session_gates WHERE session_id=? "
+            "ORDER BY id DESC LIMIT ?", (session_id, limit)).fetchall()
+    return conn.execute(
+        "SELECT * FROM multi_run_session_gates ORDER BY id DESC LIMIT ?",
+        (limit,)).fetchall()
+
+
+def update_multi_run_session_gate_status(conn, gate_id, status) -> bool:
+    cur = conn.execute(
+        "UPDATE multi_run_session_gates SET status=?, updated_at=? WHERE id=?",
+        (status, _gov_now(), gate_id))
+    conn.commit()
+    return cur.rowcount > 0
+
+
+def save_multi_run_readiness_report(
+        conn, session_id, generated_at, overall_status, summary, next_action,
+        runs_json, safety_notes_json) -> int:
+    cur = conn.execute(
+        "INSERT INTO multi_run_readiness_reports (session_id, generated_at, "
+        "overall_status, summary, next_action, runs_json, safety_notes_json) "
+        "VALUES (?,?,?,?,?,?,?)",
+        (session_id, generated_at, overall_status, summary, next_action,
+         runs_json, safety_notes_json))
+    conn.commit()
+    return cur.lastrowid
+
+
+def get_multi_run_readiness_report(conn, report_id):
+    return conn.execute(
+        "SELECT * FROM multi_run_readiness_reports WHERE id=?",
+        (report_id,)).fetchone()
+
+
+def list_multi_run_readiness_reports(conn, session_id=None, limit=50):
+    if session_id is not None:
+        return conn.execute(
+            "SELECT * FROM multi_run_readiness_reports WHERE session_id=? "
+            "ORDER BY id DESC LIMIT ?", (session_id, limit)).fetchall()
+    return conn.execute(
+        "SELECT * FROM multi_run_readiness_reports ORDER BY id DESC LIMIT ?",
+        (limit,)).fetchall()
+
+
+def save_multi_run_readiness_markdown_report(
+        conn, report_id, report_path, report_format, content_hash,
+        bytes_written) -> int:
+    cur = conn.execute(
+        "INSERT INTO multi_run_readiness_markdown_reports "
+        "(report_id, report_path, report_format, content_hash, bytes_written) "
+        "VALUES (?,?,?,?,?)",
+        (report_id, report_path, report_format, content_hash, bytes_written))
+    conn.commit()
+    return cur.lastrowid
+
+
+def save_multi_run_planner_report(
+        conn, session_id, generated_at, status, selected_run_id,
+        selected_run_step_id, reason, required_command, skipped_json,
+        safety_notes_json) -> int:
+    cur = conn.execute(
+        "INSERT INTO multi_run_planner_reports (session_id, generated_at, "
+        "status, selected_run_id, selected_run_step_id, reason, "
+        "required_command, skipped_json, safety_notes_json) "
+        "VALUES (?,?,?,?,?,?,?,?,?)",
+        (session_id, generated_at, status, selected_run_id,
+         selected_run_step_id, reason, required_command, skipped_json,
+         safety_notes_json))
+    conn.commit()
+    return cur.lastrowid
+
+
+def get_multi_run_planner_report(conn, report_id):
+    return conn.execute(
+        "SELECT * FROM multi_run_planner_reports WHERE id=?",
+        (report_id,)).fetchone()
+
+
+def list_multi_run_planner_reports(conn, session_id=None, limit=50):
+    if session_id is not None:
+        return conn.execute(
+            "SELECT * FROM multi_run_planner_reports WHERE session_id=? "
+            "ORDER BY id DESC LIMIT ?", (session_id, limit)).fetchall()
+    return conn.execute(
+        "SELECT * FROM multi_run_planner_reports ORDER BY id DESC LIMIT ?",
+        (limit,)).fetchall()
+
+
+def save_multi_run_planner_markdown_report(
+        conn, report_id, report_path, report_format, content_hash,
+        bytes_written) -> int:
+    cur = conn.execute(
+        "INSERT INTO multi_run_planner_markdown_reports "
+        "(report_id, report_path, report_format, content_hash, bytes_written) "
+        "VALUES (?,?,?,?,?)",
+        (report_id, report_path, report_format, content_hash, bytes_written))
+    conn.commit()
+    return cur.lastrowid
+
+
+def save_multi_run_session_advancement(
+        conn, session_id, run_id, run_step_id, gate_id, gated_advancement_id,
+        attempt_id, status, detail, safety_notes_json) -> int:
+    cur = conn.execute(
+        "INSERT INTO multi_run_session_advancements (session_id, run_id, "
+        "run_step_id, gate_id, gated_advancement_id, attempt_id, status, "
+        "detail, safety_notes_json) VALUES (?,?,?,?,?,?,?,?,?)",
+        (session_id, run_id, run_step_id, gate_id, gated_advancement_id,
+         attempt_id, status, detail, safety_notes_json))
+    conn.commit()
+    return cur.lastrowid
+
+
+def get_multi_run_session_advancement(conn, advancement_id):
+    return conn.execute(
+        "SELECT * FROM multi_run_session_advancements WHERE id=?",
+        (advancement_id,)).fetchone()
+
+
+def list_multi_run_session_advancements(conn, session_id=None, limit=100):
+    if session_id is not None:
+        return conn.execute(
+            "SELECT * FROM multi_run_session_advancements WHERE session_id=? "
+            "ORDER BY id DESC LIMIT ?", (session_id, limit)).fetchall()
+    return conn.execute(
+        "SELECT * FROM multi_run_session_advancements ORDER BY id DESC LIMIT ?",
+        (limit,)).fetchall()
+
+
+def save_multi_run_recovery_report(
+        conn, session_id, generated_at, overall_status, summary, next_action,
+        entries_json, safety_notes_json) -> int:
+    cur = conn.execute(
+        "INSERT INTO multi_run_recovery_reports (session_id, generated_at, "
+        "overall_status, summary, next_action, entries_json, "
+        "safety_notes_json) VALUES (?,?,?,?,?,?,?)",
+        (session_id, generated_at, overall_status, summary, next_action,
+         entries_json, safety_notes_json))
+    conn.commit()
+    return cur.lastrowid
+
+
+def get_multi_run_recovery_report(conn, report_id):
+    return conn.execute(
+        "SELECT * FROM multi_run_recovery_reports WHERE id=?",
+        (report_id,)).fetchone()
+
+
+def list_multi_run_recovery_reports(conn, session_id=None, limit=50):
+    if session_id is not None:
+        return conn.execute(
+            "SELECT * FROM multi_run_recovery_reports WHERE session_id=? "
+            "ORDER BY id DESC LIMIT ?", (session_id, limit)).fetchall()
+    return conn.execute(
+        "SELECT * FROM multi_run_recovery_reports ORDER BY id DESC LIMIT ?",
+        (limit,)).fetchall()
+
+
+def save_multi_run_recovery_markdown_report(
+        conn, report_id, report_path, report_format, content_hash,
+        bytes_written) -> int:
+    cur = conn.execute(
+        "INSERT INTO multi_run_recovery_markdown_reports "
+        "(report_id, report_path, report_format, content_hash, bytes_written) "
+        "VALUES (?,?,?,?,?)",
+        (report_id, report_path, report_format, content_hash, bytes_written))
+    conn.commit()
+    return cur.lastrowid
+
+
+def save_multi_run_session_report(
+        conn, session_id, generated_at, overall_status, summary, next_action,
+        members_json, gates_json, advancements_json, recovery_json,
+        safety_notes_json) -> int:
+    cur = conn.execute(
+        "INSERT INTO multi_run_session_reports (session_id, generated_at, "
+        "overall_status, summary, next_action, members_json, gates_json, "
+        "advancements_json, recovery_json, safety_notes_json) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?)",
+        (session_id, generated_at, overall_status, summary, next_action,
+         members_json, gates_json, advancements_json, recovery_json,
+         safety_notes_json))
+    conn.commit()
+    return cur.lastrowid
+
+
+def get_multi_run_session_report(conn, report_id):
+    return conn.execute(
+        "SELECT * FROM multi_run_session_reports WHERE id=?",
+        (report_id,)).fetchone()
+
+
+def list_multi_run_session_reports(conn, session_id=None, limit=50):
+    if session_id is not None:
+        return conn.execute(
+            "SELECT * FROM multi_run_session_reports WHERE session_id=? "
+            "ORDER BY id DESC LIMIT ?", (session_id, limit)).fetchall()
+    return conn.execute(
+        "SELECT * FROM multi_run_session_reports ORDER BY id DESC LIMIT ?",
+        (limit,)).fetchall()
+
+
+def save_multi_run_session_markdown_report(
+        conn, report_id, report_path, report_format, content_hash,
+        bytes_written) -> int:
+    cur = conn.execute(
+        "INSERT INTO multi_run_session_markdown_reports "
+        "(report_id, report_path, report_format, content_hash, bytes_written) "
+        "VALUES (?,?,?,?,?)",
+        (report_id, report_path, report_format, content_hash, bytes_written))
+    conn.commit()
+    return cur.lastrowid
+
+
+def save_multi_run_session_audit(
+        conn, generated_at, overall_status, total_checks, passed_checks,
+        warning_checks, failed_checks, blocked_checks, checks_json,
+        recommendations_json, safety_notes_json) -> int:
+    cur = conn.execute(
+        "INSERT INTO multi_run_session_audits (generated_at, overall_status, "
+        "total_checks, passed_checks, warning_checks, failed_checks, "
+        "blocked_checks, checks_json, recommendations_json, safety_notes_json) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?)",
+        (generated_at, overall_status, total_checks, passed_checks,
+         warning_checks, failed_checks, blocked_checks, checks_json,
+         recommendations_json, safety_notes_json))
+    conn.commit()
+    return cur.lastrowid
+
+
+def list_multi_run_session_audits(conn, limit=20):
+    return conn.execute(
+        "SELECT * FROM multi_run_session_audits ORDER BY id DESC LIMIT ?",
+        (limit,)).fetchall()
+
+
+def save_multi_run_session_audit_markdown_report(
+        conn, audit_id, report_path, report_format, content_hash,
+        bytes_written) -> int:
+    cur = conn.execute(
+        "INSERT INTO multi_run_session_audit_markdown_reports "
+        "(audit_id, report_path, report_format, content_hash, bytes_written) "
+        "VALUES (?,?,?,?,?)",
+        (audit_id, report_path, report_format, content_hash, bytes_written))
+    conn.commit()
+    return cur.lastrowid
+
+
+def save_cross_project_stage14_audit(
+        conn, generated_at, overall_status, total_checks, passed_checks,
+        warning_checks, failed_checks, blocked_checks, checks_json,
+        recommendations_json, stage15_readiness_json, safety_notes_json,
+        next_steps_json) -> int:
+    cur = conn.execute(
+        "INSERT INTO cross_project_stage14_audits (generated_at, overall_status, "
+        "total_checks, passed_checks, warning_checks, failed_checks, "
+        "blocked_checks, checks_json, recommendations_json, stage15_readiness_json, "
+        "safety_notes_json, next_steps_json) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+        (generated_at, overall_status, total_checks, passed_checks, warning_checks,
+         failed_checks, blocked_checks, checks_json, recommendations_json,
+         stage15_readiness_json, safety_notes_json, next_steps_json))
+    conn.commit()
+    return cur.lastrowid
+
+
+def list_cross_project_stage14_audits(conn, limit=20):
+    return conn.execute(
+        "SELECT * FROM cross_project_stage14_audits ORDER BY id DESC LIMIT ?",
+        (limit,)).fetchall()
+
+
+def save_cross_project_stage14_audit_markdown_report(
+        conn, stage14_audit_id, report_path, report_format, content_hash,
+        bytes_written) -> int:
+    cur = conn.execute(
+        "INSERT INTO cross_project_stage14_audit_markdown_reports "
+        "(stage14_audit_id, report_path, report_format, content_hash, bytes_written) "
+        "VALUES (?,?,?,?,?)",
+        (stage14_audit_id, report_path, report_format, content_hash, bytes_written))
     conn.commit()
     return cur.lastrowid

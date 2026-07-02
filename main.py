@@ -126,6 +126,15 @@ import cross_project_restoration_status
 import cross_project_restoration_reports
 import cross_project_restoration_audit
 import cross_project_stage13_audit
+import multi_run_sessions
+import multi_run_session_gates
+import multi_run_readiness
+import multi_run_planner
+import multi_run_advancement
+import multi_run_recovery
+import multi_run_reports
+import multi_run_session_audit
+import cross_project_stage14_audit
 from loop_engine import LoopEngine
 
 USAGE = """Loop Engineering — orchestrates local Ollama models in a safe
@@ -10152,6 +10161,16 @@ def _latest_retry_request_id(conn):
     return rows[0]["id"] if rows else None
 
 
+def _latest_multi_run_session_id(conn):
+    rows = database.list_multi_run_sessions(conn, limit=1)
+    return rows[0]["id"] if rows else None
+
+
+def _latest_multi_run_gate_id(conn):
+    rows = database.list_multi_run_session_gates(conn, limit=1)
+    return rows[0]["id"] if rows else None
+
+
 def _print_execution_intent(intent) -> None:
     print(f"id         : {intent.id}")
     print(f"source     : {intent.source_type}:{intent.source_id}")
@@ -12018,6 +12037,441 @@ def _cmd_cross_project_stage13_audit(args) -> int:
     return 0
 
 
+def _print_multi_run_session(session) -> None:
+    print(f"session id : {session.id}")
+    print(f"title      : {session.title}")
+    print(f"status     : {session.status}")
+    print(f"created by : {session.created_by}")
+    if session.notes:
+        print(f"notes      : {session.notes}")
+
+
+def _cmd_create_multi_run_session(args) -> int:
+    if not args:
+        print("ERROR: --create-multi-run-session needs \"TITLE\"",
+              file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    try:
+        session = multi_run_sessions.MultiRunSessionManager(conn).create_session(
+            args[0], created_by=_flag_val(args, "--by"),
+            notes=_flag_val(args, "--notes"))
+    except (TypeError, ValueError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    _rule("MULTI-RUN SESSION CREATED")
+    _print_multi_run_session(session)
+    return 0
+
+
+def _cmd_multi_run_sessions(args) -> int:
+    conn = database.init_db()
+    sessions = multi_run_sessions.MultiRunSessionManager(conn).list_sessions()
+    _rule(f"MULTI-RUN SESSIONS ({len(sessions)})")
+    if not sessions:
+        print("(none)")
+    for session in sessions:
+        print(f"#{session.id} status={session.status} title={session.title}")
+    return 0
+
+
+def _cmd_multi_run_session(args) -> int:
+    if not args:
+        print("ERROR: --multi-run-session needs SESSION_ID|latest",
+              file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    try:
+        session_id = _parse_id_or_latest(
+            conn, args[0], _latest_multi_run_session_id, "multi-run session")
+    except (TypeError, ValueError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    manager = multi_run_sessions.MultiRunSessionManager(conn)
+    session = manager.get_session(session_id)
+    if session is None:
+        print(f"ERROR: no multi-run session {args[0]}", file=sys.stderr)
+        return 1
+    _rule("MULTI-RUN SESSION")
+    _print_multi_run_session(session)
+    members = manager.list_members(session.id)
+    print(f"members    : {len(members)}")
+    for member in members:
+        print(f"- run {member.run_id} ({member.status})")
+    return 0
+
+
+def _cmd_close_multi_run_session(args) -> int:
+    if not args:
+        print("ERROR: --close-multi-run-session needs SESSION_ID|latest",
+              file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    try:
+        session_id = _parse_id_or_latest(
+            conn, args[0], _latest_multi_run_session_id, "multi-run session")
+        session = multi_run_sessions.MultiRunSessionManager(conn).close_session(
+            session_id)
+    except (TypeError, ValueError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    _rule("MULTI-RUN SESSION CLOSED")
+    _print_multi_run_session(session)
+    return 0
+
+
+def _cmd_add_run_to_multi_run_session(args) -> int:
+    if len(args) < 2:
+        print("ERROR: --add-run-to-multi-run-session needs SESSION_ID RUN_ID",
+              file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    try:
+        session_id = _parse_id_or_latest(
+            conn, args[0], _latest_multi_run_session_id, "multi-run session")
+        run_id = _parse_id_or_latest(
+            conn, args[1], _latest_orchestration_run_id, "orchestration run")
+        member = multi_run_sessions.MultiRunSessionManager(conn).add_run(
+            session_id, run_id)
+    except (TypeError, ValueError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    _rule("MULTI-RUN SESSION MEMBER ADDED")
+    print(f"member id  : {member.id}")
+    print(f"session id : {member.session_id}")
+    print(f"run id     : {member.run_id}")
+    print(f"status     : {member.status}")
+    return 0
+
+
+def _cmd_remove_run_from_multi_run_session(args) -> int:
+    if len(args) < 2:
+        print("ERROR: --remove-run-from-multi-run-session needs SESSION_ID RUN_ID",
+              file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    try:
+        session_id = _parse_id_or_latest(
+            conn, args[0], _latest_multi_run_session_id, "multi-run session")
+        member = multi_run_sessions.MultiRunSessionManager(conn).remove_run(
+            session_id, int(args[1]))
+    except (TypeError, ValueError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    _rule("MULTI-RUN SESSION MEMBER REMOVED")
+    print(f"member id  : {member.id}")
+    print(f"run id     : {member.run_id}")
+    print(f"status     : {member.status}")
+    return 0
+
+
+def _cmd_multi_run_session_members(args) -> int:
+    if not args:
+        print("ERROR: --multi-run-session-members needs SESSION_ID|latest",
+              file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    try:
+        session_id = _parse_id_or_latest(
+            conn, args[0], _latest_multi_run_session_id, "multi-run session")
+        manager = multi_run_sessions.MultiRunSessionManager(conn)
+        if manager.get_session(session_id) is None:
+            raise ValueError(f"no multi-run session {session_id}")
+        members = manager.list_members(session_id)
+    except (TypeError, ValueError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    _rule(f"MULTI-RUN SESSION MEMBERS ({len(members)})")
+    if not members:
+        print("(none)")
+    for member in members:
+        print(f"#{member.id} run={member.run_id} status={member.status}")
+    return 0
+
+
+def _cmd_define_multi_run_gate(args) -> int:
+    if not args:
+        print("ERROR: --define-multi-run-gate needs SESSION_ID --label LABEL",
+              file=sys.stderr)
+        return 1
+    label = _flag_val(args, "--label")
+    if label is None:
+        print("ERROR: session gate requires --label LABEL", file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    try:
+        session_id = _parse_id_or_latest(
+            conn, args[0], _latest_multi_run_session_id, "multi-run session")
+        window_arg = _flag_val(args, "--window")
+        policy_arg = _flag_val(args, "--retry-policy")
+        gate = multi_run_session_gates.MultiRunSessionGateManager(conn).define_gate(
+            session_id, label,
+            window_ids=[window_arg] if window_arg else None,
+            retry_policy_ids=[policy_arg] if policy_arg else None,
+            notes=_flag_val(args, "--notes"))
+    except (TypeError, ValueError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    _rule("MULTI-RUN SESSION GATE DEFINED")
+    print(f"gate id    : {gate.id}")
+    print(f"session id : {gate.session_id}")
+    print(f"label      : {gate.label}")
+    print(f"status     : {gate.status}")
+    return 0
+
+
+def _cmd_approve_multi_run_gate(args) -> int:
+    if not args:
+        print("ERROR: --approve-multi-run-gate needs GATE_ID|latest",
+              file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    try:
+        gate_id = _parse_id_or_latest(
+            conn, args[0], _latest_multi_run_gate_id, "multi-run session gate")
+        gate = multi_run_session_gates.MultiRunSessionGateManager(conn).approve_gate(
+            gate_id)
+    except (TypeError, ValueError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    _rule("MULTI-RUN SESSION GATE APPROVED")
+    print(f"gate id    : {gate.id}")
+    print(f"status     : {gate.status}")
+    print("note       : gates are advisory; Stage 10/12/13 per-step gates "
+          "remain required")
+    return 0
+
+
+def _cmd_revoke_multi_run_gate(args) -> int:
+    if not args:
+        print("ERROR: --revoke-multi-run-gate needs GATE_ID|latest",
+              file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    try:
+        gate_id = _parse_id_or_latest(
+            conn, args[0], _latest_multi_run_gate_id, "multi-run session gate")
+        gate = multi_run_session_gates.MultiRunSessionGateManager(conn).revoke_gate(
+            gate_id)
+    except (TypeError, ValueError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    _rule("MULTI-RUN SESSION GATE REVOKED")
+    print(f"gate id    : {gate.id}")
+    print(f"status     : {gate.status}")
+    return 0
+
+
+def _cmd_multi_run_gates(args) -> int:
+    if not args:
+        print("ERROR: --multi-run-gates needs SESSION_ID|latest",
+              file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    try:
+        session_id = _parse_id_or_latest(
+            conn, args[0], _latest_multi_run_session_id, "multi-run session")
+        gates = multi_run_session_gates.MultiRunSessionGateManager(conn).list_gates(
+            session_id=session_id)
+    except (TypeError, ValueError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    _rule(f"MULTI-RUN SESSION GATES ({len(gates)})")
+    if not gates:
+        print("(none)")
+    for gate in gates:
+        print(f"#{gate.id} status={gate.status} label={gate.label}")
+    return 0
+
+
+def _cmd_multi_run_readiness(args) -> int:
+    if not args:
+        print("ERROR: --multi-run-readiness needs SESSION_ID|latest",
+              file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    try:
+        session_id = _parse_id_or_latest(
+            conn, args[0], _latest_multi_run_session_id, "multi-run session")
+        engine = multi_run_readiness.MultiRunReadinessEngine(conn)
+        report = engine.build(session_id)
+        markdown_path = engine.save_markdown_report(report) if "--save-report" in args else None
+    except (TypeError, ValueError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    _rule("MULTI-RUN SESSION READINESS")
+    print(f"report id  : {report.id}")
+    print(f"session id : {report.session_id}")
+    print(f"overall    : {report.overall_status}")
+    print(f"next action: {report.next_action}")
+    if markdown_path:
+        print(f"markdown   : {markdown_path}")
+    for entry in report.runs:
+        print(f"- run {entry['run_id']}: {entry.get('status', '')} — "
+              f"{entry.get('next_action', '')}")
+    return 0
+
+
+def _cmd_plan_multi_run_advancement(args) -> int:
+    if not args:
+        print("ERROR: --plan-multi-run-advancement needs SESSION_ID|latest",
+              file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    try:
+        session_id = _parse_id_or_latest(
+            conn, args[0], _latest_multi_run_session_id, "multi-run session")
+        planner = multi_run_planner.MultiRunAdvancementPlanner(conn)
+        result = planner.plan(session_id)
+        markdown_path = planner.save_markdown_report(result) if "--save-report" in args else None
+    except (TypeError, ValueError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    _rule("MULTI-RUN ADVANCEMENT PLAN")
+    print(f"planner id : {result.id}")
+    print(f"session id : {result.session_id}")
+    print(f"status     : {result.status}")
+    print(f"selected   : run={result.selected_run_id or '-'} "
+          f"step={result.selected_run_step_id or '-'}")
+    print(f"reason     : {result.reason}")
+    print(f"command    : {result.required_command}")
+    if markdown_path:
+        print(f"markdown   : {markdown_path}")
+    for entry in result.skipped:
+        print(f"- skipped run {entry['run_id']}: {entry['reason']}")
+    return 0
+
+
+def _cmd_advance_multi_run_session(args) -> int:
+    if not args:
+        print("ERROR: --advance-multi-run-session needs SESSION_ID --run RUN_ID "
+              "--step STEP_ID --confirmation CONFIRMATION_ID --snapshot "
+              "SNAPSHOT_ID --confirm-execution", file=sys.stderr)
+        return 1
+    run_arg = _flag_val(args, "--run")
+    step_arg = _flag_val(args, "--step")
+    confirmation_arg = _flag_val(args, "--confirmation")
+    snapshot_arg = _flag_val(args, "--snapshot")
+    if run_arg is None or step_arg is None or confirmation_arg is None or snapshot_arg is None:
+        print("ERROR: session advancement requires --run, --step, "
+              "--confirmation, and --snapshot", file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    try:
+        session_id = _parse_id_or_latest(
+            conn, args[0], _latest_multi_run_session_id, "multi-run session")
+        confirmation_id = _parse_id_or_latest(
+            conn, confirmation_arg, _latest_execution_confirmation_id,
+            "execution confirmation")
+        snapshot_id = _parse_id_or_latest(
+            conn, snapshot_arg, _latest_execution_snapshot_id,
+            "execution snapshot")
+        result = multi_run_advancement.MultiRunSessionAdvancementEngine(
+            conn).advance(session_id, int(run_arg), int(step_arg),
+                          confirmation_id, snapshot_id,
+                          confirm_execution=("--confirm-execution" in args))
+    except (TypeError, ValueError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    _rule("MULTI-RUN SESSION ADVANCEMENT")
+    print(f"record id     : {result.id}")
+    print(f"session id    : {result.session_id}")
+    print(f"run id        : {result.run_id}")
+    print(f"gated id      : {result.gated_advancement_id}")
+    print(f"attempt id    : {result.attempt_id}")
+    print(f"status        : {result.status}")
+    print(f"detail        : {result.detail}")
+    return 0
+
+
+def _cmd_multi_run_recovery_status(args) -> int:
+    if not args:
+        print("ERROR: --multi-run-recovery-status needs SESSION_ID|latest",
+              file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    try:
+        session_id = _parse_id_or_latest(
+            conn, args[0], _latest_multi_run_session_id, "multi-run session")
+        engine = multi_run_recovery.MultiRunRecoveryEngine(conn)
+        status = engine.status(session_id)
+        markdown_path = engine.save_markdown_report(status) if "--save-report" in args else None
+    except (TypeError, ValueError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    _rule("MULTI-RUN SESSION RECOVERY")
+    print(f"report id  : {status.id}")
+    print(f"session id : {status.session_id}")
+    print(f"overall    : {status.overall_status}")
+    print(f"next action: {status.next_action}")
+    if markdown_path:
+        print(f"markdown   : {markdown_path}")
+    for entry in status.entries:
+        print(f"- run {entry['run_id']} step {entry['step_id']}: "
+              f"{entry['next_command']}")
+    return 0
+
+
+def _cmd_multi_run_session_report(args) -> int:
+    if not args:
+        print("ERROR: --multi-run-session-report needs SESSION_ID|latest",
+              file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    try:
+        session_id = _parse_id_or_latest(
+            conn, args[0], _latest_multi_run_session_id, "multi-run session")
+        builder = multi_run_reports.MultiRunSessionReportBuilder(conn)
+        report = builder.build_report(session_id)
+        report_id = builder.save_report(report)
+        markdown_path = builder.save_markdown_report(report_id, report) if "--save-report" in args else None
+    except (TypeError, ValueError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    _rule("MULTI-RUN SESSION REPORT")
+    print(f"report id  : {report_id}")
+    print(f"session id : {report.session_id}")
+    print(f"overall    : {report.overall_status}")
+    print(f"summary    : {report.summary}")
+    print(f"next action: {report.next_action}")
+    if markdown_path:
+        print(f"markdown   : {markdown_path}")
+    return 0
+
+
+def _cmd_multi_run_session_audit(args) -> int:
+    conn = database.init_db()
+    engine = multi_run_session_audit.MultiRunSessionAuditEngine(conn)
+    report = engine.build_report()
+    audit_id = engine.save_audit(report)
+    markdown_path = engine.save_markdown_report(audit_id, report) if "--save-report" in args else None
+    _rule("MULTI-RUN SESSION AUDIT")
+    print(f"audit id      : {audit_id}")
+    print(f"overall status: {report.overall_status}")
+    if markdown_path:
+        print(f"markdown      : {markdown_path}")
+    for check in report.checks:
+        print(f"- {check.status}: {check.name} — {check.message}")
+    return 0
+
+
+def _cmd_cross_project_stage14_audit(args) -> int:
+    conn = database.init_db()
+    engine = cross_project_stage14_audit.CrossProjectStage14AuditEngine(conn)
+    report = engine.build_report()
+    audit_id = engine.save_audit(report)
+    markdown_path = engine.save_markdown_report(audit_id, report) if "--save-report" in args else None
+    _rule("STAGE 14 FINAL AUDIT — MULTI-RUN SESSIONS")
+    print(f"audit id      : {audit_id}")
+    print(f"overall status: {report.overall_status}")
+    print(f"stage 15 ready: {report.stage15_readiness.get('ready')}")
+    if markdown_path:
+        print(f"markdown      : {markdown_path}")
+    for check in report.checks:
+        print(f"- {check.status}: {check.name} — {check.message}")
+    return 0
+
+
 def _print_stage9_audit(report, audit_id=None, markdown_path=None) -> None:
     _rule("STAGE 9 FINAL AUDIT — CONTROLLED CROSS-PROJECT EXECUTION PLANNING")
     if audit_id is not None:
@@ -12669,6 +13123,43 @@ def main() -> int:
         return _cmd_restoration_audit(args[1:])
     if args and args[0] == "--cross-project-stage13-audit":
         return _cmd_cross_project_stage13_audit(args[1:])
+    # --- Stage 14: Multi-Run Orchestration Sessions ----------------------
+    if args and args[0] == "--create-multi-run-session":
+        return _cmd_create_multi_run_session(args[1:])
+    if args and args[0] == "--multi-run-sessions":
+        return _cmd_multi_run_sessions(args[1:])
+    if args and args[0] == "--multi-run-session-members":
+        return _cmd_multi_run_session_members(args[1:])
+    if args and args[0] == "--multi-run-session-report":
+        return _cmd_multi_run_session_report(args[1:])
+    if args and args[0] == "--multi-run-session-audit":
+        return _cmd_multi_run_session_audit(args[1:])
+    if args and args[0] == "--multi-run-session":
+        return _cmd_multi_run_session(args[1:])
+    if args and args[0] == "--close-multi-run-session":
+        return _cmd_close_multi_run_session(args[1:])
+    if args and args[0] == "--add-run-to-multi-run-session":
+        return _cmd_add_run_to_multi_run_session(args[1:])
+    if args and args[0] == "--remove-run-from-multi-run-session":
+        return _cmd_remove_run_from_multi_run_session(args[1:])
+    if args and args[0] == "--define-multi-run-gate":
+        return _cmd_define_multi_run_gate(args[1:])
+    if args and args[0] == "--approve-multi-run-gate":
+        return _cmd_approve_multi_run_gate(args[1:])
+    if args and args[0] == "--revoke-multi-run-gate":
+        return _cmd_revoke_multi_run_gate(args[1:])
+    if args and args[0] == "--multi-run-gates":
+        return _cmd_multi_run_gates(args[1:])
+    if args and args[0] == "--multi-run-readiness":
+        return _cmd_multi_run_readiness(args[1:])
+    if args and args[0] == "--plan-multi-run-advancement":
+        return _cmd_plan_multi_run_advancement(args[1:])
+    if args and args[0] == "--advance-multi-run-session":
+        return _cmd_advance_multi_run_session(args[1:])
+    if args and args[0] == "--multi-run-recovery-status":
+        return _cmd_multi_run_recovery_status(args[1:])
+    if args and args[0] == "--cross-project-stage14-audit":
+        return _cmd_cross_project_stage14_audit(args[1:])
 
     (commit, commit_message, loop_name, overrides, min_conf, workspace_name,
      require_approval, auto_approve_low_risk, approval_mode,

@@ -49,6 +49,12 @@ REQUIRED_IGNORES = [
     "cross_project_restoration_reports/",
     "cross_project_restoration_audit_reports/",
     "cross_project_stage13_audit_reports/",
+    "multi_run_readiness_reports/",
+    "multi_run_planner_reports/",
+    "multi_run_recovery_reports/",
+    "multi_run_session_reports/",
+    "multi_run_session_audit_reports/",
+    "cross_project_stage14_audit_reports/",
 ]
 
 CORE_VERIFICATION = [
@@ -222,6 +228,22 @@ def build_handoff(repo_root="."):
     a("- Verify/record: `--check-restoration-integrity RUN_ID --step STEP_ID` -> `--record-restoration-outcome RUN_ID --step STEP_ID`")
     a("- Status/report/audit: `--restoration-status RUN_ID` -> `--cross-project-restoration-report RUN_ID` -> `--cross-project-restoration-audit` -> `--cross-project-stage13-audit`")
     a("- Restoration is not window-gated by design (windows govern command execution; restore is recovery); it is gated by preview-first + literal `--confirm-restore`.")
+    a("")
+    a("## Multi-Run Orchestration Sessions (Stage 14)")
+    a("")
+    a("Stage 14 groups existing orchestration runs into an operator-managed")
+    a("session for coordination. It has no executor: session advancement")
+    a("delegates to Stage 12 gated advancement (Stage 12 -> 11 -> 10) and")
+    a("executes at most one step per invocation. Shared session gates are")
+    a("advisory and never replace Stage 10/12/13 per-step gates.")
+    a("")
+    a("- Session: `--create-multi-run-session \"TITLE\"` -> `--add-run-to-multi-run-session SESSION_ID RUN_ID` (one open session per run) -> `--close-multi-run-session SESSION_ID`")
+    a("- Gate (advisory): `--define-multi-run-gate SESSION_ID --label LABEL` -> `--approve-multi-run-gate GATE_ID` / `--revoke-multi-run-gate GATE_ID`")
+    a("- Inspect: `--multi-run-readiness SESSION_ID` -> `--plan-multi-run-advancement SESSION_ID` (deterministic, advisory; recovery always recommended before execution)")
+    a("- Advance one step: `--advance-multi-run-session SESSION_ID --run RUN_ID --step STEP_ID --confirmation CONFIRMATION_ID --snapshot SNAPSHOT_ID --confirm-execution`")
+    a("- Recovery guidance: `--multi-run-recovery-status SESSION_ID` (emits exact manual Stage 13/12 commands; never auto-restores or auto-retries)")
+    a("- Report/audit: `--multi-run-session-report SESSION_ID` -> `--multi-run-session-audit` -> `--cross-project-stage14-audit`")
+    a("- The runtime audit scans Stage 14 module source: no subprocess import, no direct terminal-runner or model-client call, allowlist unchanged.")
     a("")
     a("## Next Agent Checklist")
     a("")

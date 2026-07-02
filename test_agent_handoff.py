@@ -27,6 +27,9 @@ class AgentHandoffTests(unittest.TestCase):
             self.assertIn("Operator Rollback Restoration (Stage 13)", content)
             self.assertIn("--restore-orchestration-step", content)
             self.assertIn("--confirm-restore", content)
+            self.assertIn("Multi-Run Orchestration Sessions (Stage 14)", content)
+            self.assertIn("--advance-multi-run-session", content)
+            self.assertIn("--approve-multi-run-gate", content)
 
     def test_check_requires_runtime_artifacts_ignored(self):
         import agent_handoff

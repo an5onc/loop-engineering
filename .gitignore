@@ -55,3 +55,9 @@ cross_project_stage12_audit_reports/
 cross_project_restoration_reports/
 cross_project_restoration_audit_reports/
 cross_project_stage13_audit_reports/
+multi_run_readiness_reports/
+multi_run_planner_reports/
+multi_run_recovery_reports/
+multi_run_session_reports/
+multi_run_session_audit_reports/
+cross_project_stage14_audit_reports/
