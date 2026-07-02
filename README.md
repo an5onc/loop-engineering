@@ -1,3 +1,76 @@
+# Loop Engineering — Stage 13
+
+## What's new in 13 — Operator-Driven Rollback Restoration
+
+Stage 13 closes the recovery loop for blocked orchestration steps. When a
+gated advancement fails, the operator can now preview and restore the Stage 10
+snapshot that preceded the failed attempt — through the orchestration layer,
+with full metadata linkage — then verify the restoration byte-for-byte and
+retry via the Stage 12 flow.
+
+Stage 13 introduces **no new file-write path**: all restores delegate to the
+Stage 10 rollback engine, which re-validates path containment and protected
+paths at restore time. Restoration requires an eligible blocked step, a preview
+of the same snapshot that is newer than the latest restore, and the literal
+`--confirm-restore` flag. It never re-opens the step — only a Stage 12 retry
+authorization does that. By design, restoration is **not** gated by execution
+windows: windows govern when commands may run; restoration is recovery.
+
+### 13.0-13.2 Target resolution, preview, gated restore
+
+The resolver identifies the snapshot behind a blocked step's latest failed
+advancement (fail-closed if the step is not blocked, never advanced, or has no
+snapshot). Preview delegates to the Stage 10 preview (no files written) and
+records the first orchestration-level rollback linkage. Restore requires the
+preview and explicit confirmation.
+
+```bash
+python3 main.py --resolve-orchestration-restoration RUN_ID --step STEP_ID
+python3 main.py --preview-orchestration-restoration RUN_ID --step STEP_ID
+python3 main.py --restore-orchestration-step RUN_ID --step STEP_ID --confirm-restore
+python3 main.py --orchestration-step-rollbacks [RUN_ID]
+```
+
+### 13.3-13.5 Integrity, outcome, status
+
+The integrity check re-hashes restored files against the snapshot manifest
+(read-only). The outcome binder records the Stage 10 `rolled_back` outcome for
+the failed attempt. The status resolver walks the operator through the guided
+sequence: preview → restore → verify integrity → record outcome → Stage 12
+retry.
+
+```bash
+python3 main.py --check-restoration-integrity RUN_ID --step STEP_ID
+python3 main.py --record-restoration-outcome RUN_ID --step STEP_ID
+python3 main.py --restoration-status RUN_ID [--step STEP_ID]
+```
+
+### 13.6-13.9 Reports and audits
+
+```bash
+python3 main.py --cross-project-restoration-report RUN_ID --save-report
+python3 main.py --cross-project-restoration-audit --save-report
+python3 main.py --cross-project-stage13-audit --save-report
+```
+
+Stage 12's guidance now points here: a blocked step with retry budget suggests
+restoring first, and an exhausted budget points at `--restoration-status`.
+
+### Stage 13 tests
+
+```bash
+python3 -m unittest \
+  test_cross_project_restoration_targets.py \
+  test_cross_project_restoration_previews.py \
+  test_cross_project_gated_restoration.py \
+  test_cross_project_restoration_integrity.py \
+  test_cross_project_restoration_outcomes.py \
+  test_cross_project_restoration_status.py \
+  test_cross_project_restoration_reports.py \
+  test_cross_project_restoration_audit.py \
+  test_cross_project_stage13_audit.py
+```
+
 # Loop Engineering — Stage 12
 
 ## What's new in 12 — Controlled Execution Windows and Limited Retry Policy

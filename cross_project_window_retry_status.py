@@ -67,8 +67,9 @@ class CrossProjectWindowRetryStatusResolver:
             step = _find_step(run, int(step_id))
         retries_used = self._retries_used(run, step)
         authorized_request = self._authorized_request(run, step)
+        restored = self._has_restored_rollback(run, step)
         next_action = _next_action(window_status, run, step, policy,
-                                   retries_used, authorized_request)
+                                   retries_used, authorized_request, restored)
         detail = {
             "window_id": window.id if window else None,
             "window_reason": window_reason,
@@ -76,6 +77,7 @@ class CrossProjectWindowRetryStatusResolver:
             "step_status": step.status if step else None,
             "authorized_retry_request_id": (
                 authorized_request["id"] if authorized_request else None),
+            "restored_rollback": restored,
         }
         status_id = database.save_cross_project_window_retry_status(
             self.conn, run.id, step.id if step else None, window_status,
@@ -105,6 +107,15 @@ class CrossProjectWindowRetryStatusResolver:
                 return row
         return None
 
+    def _has_restored_rollback(self, run, step):
+        for row in database.list_cross_project_orchestration_step_rollbacks(
+                self.conn, run_id=run.id):
+            if row["status"] != "restored":
+                continue
+            if step is None or row["run_step_id"] == step.id:
+                return True
+        return False
+
 
 def _find_step(run, step_id):
     for step in run.steps:
@@ -114,7 +125,7 @@ def _find_step(run, step_id):
 
 
 def _next_action(window_status, run, step, policy, retries_used,
-                 authorized_request):
+                 authorized_request, restored=False):
     if window_status == "missing":
         return "define an execution window (--define-execution-window)"
     if window_status != "open":
@@ -129,8 +140,14 @@ def _next_action(window_status, run, step, policy, retries_used,
             return ("advance with --confirm-execution using a fresh "
                     "Stage 10 confirmation")
         if retries_used < policy.max_retries:
-            return "request an authorized retry (--request-orchestration-retry)"
-        return "retry budget exhausted — review orchestration rollback status"
+            if restored:
+                return ("request an authorized retry "
+                        "(--request-orchestration-retry)")
+            return ("if the failed attempt wrote files, restore first "
+                    "(--preview-orchestration-restoration), then request an "
+                    "authorized retry (--request-orchestration-retry)")
+        return ("retry budget exhausted — review restoration status "
+                "(--restoration-status)")
     if any(s.status == "pending" for s in run.steps):
         return "advance the pending step with --confirm-execution"
     return "review the window/retry report (--cross-project-window-retry-report)"

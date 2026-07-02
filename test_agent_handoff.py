@@ -24,6 +24,9 @@ class AgentHandoffTests(unittest.TestCase):
             self.assertIn("Execution Windows & Retry Policy (Stage 12)", content)
             self.assertIn("--define-execution-window", content)
             self.assertIn("--request-orchestration-retry", content)
+            self.assertIn("Operator Rollback Restoration (Stage 13)", content)
+            self.assertIn("--restore-orchestration-step", content)
+            self.assertIn("--confirm-restore", content)
 
     def test_check_requires_runtime_artifacts_ignored(self):
         import agent_handoff

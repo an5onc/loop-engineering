@@ -117,6 +117,15 @@ import cross_project_window_retry_status
 import cross_project_window_retry_reports
 import cross_project_window_retry_audit
 import cross_project_stage12_audit
+import cross_project_restoration_targets
+import cross_project_restoration_previews
+import cross_project_gated_restoration
+import cross_project_restoration_integrity
+import cross_project_restoration_outcomes
+import cross_project_restoration_status
+import cross_project_restoration_reports
+import cross_project_restoration_audit
+import cross_project_stage13_audit
 from loop_engine import LoopEngine
 
 USAGE = """Loop Engineering — orchestrates local Ollama models in a safe
@@ -11745,6 +11754,270 @@ def _cmd_cross_project_stage12_audit(args) -> int:
     return 0
 
 
+def _cmd_resolve_orchestration_restoration(args) -> int:
+    if not args:
+        print("ERROR: --resolve-orchestration-restoration needs RUN_ID|latest "
+              "--step STEP_ID", file=sys.stderr)
+        return 1
+    step_arg = _flag_val(args, "--step")
+    if step_arg is None:
+        print("ERROR: restoration resolution requires --step STEP_ID",
+              file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    try:
+        run_id = _parse_id_or_latest(
+            conn, args[0], _latest_orchestration_run_id, "orchestration run")
+        target = cross_project_restoration_targets.CrossProjectRestorationTargetResolver(
+            conn).resolve(run_id, int(step_arg))
+    except (TypeError, ValueError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    _rule("CROSS-PROJECT RESTORATION TARGET")
+    print(f"target id     : {target.id}")
+    print(f"run id        : {target.run_id}")
+    print(f"run step id   : {target.run_step_id}")
+    print(f"advancement id: {target.advancement_id}")
+    print(f"snapshot id   : {target.snapshot_id}")
+    print(f"status        : {target.status}")
+    return 0
+
+
+def _cmd_preview_orchestration_restoration(args) -> int:
+    if not args:
+        print("ERROR: --preview-orchestration-restoration needs RUN_ID|latest "
+              "--step STEP_ID", file=sys.stderr)
+        return 1
+    step_arg = _flag_val(args, "--step")
+    if step_arg is None:
+        print("ERROR: restoration preview requires --step STEP_ID",
+              file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    try:
+        run_id = _parse_id_or_latest(
+            conn, args[0], _latest_orchestration_run_id, "orchestration run")
+        preview = cross_project_restoration_previews.CrossProjectRestorationPreviewBinder(
+            conn).preview(run_id, int(step_arg))
+    except (TypeError, ValueError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    _rule("CROSS-PROJECT RESTORATION PREVIEW")
+    print(f"rollback id : {preview.rollback_id}")
+    print(f"run id      : {preview.run_id}")
+    print(f"snapshot id : {preview.snapshot_id}")
+    print(f"restore id  : {preview.restore_id}")
+    print(f"total files : {preview.total_files}")
+    print(f"status      : {preview.status}")
+    print("next        : restore with --restore-orchestration-step ... "
+          "--confirm-restore")
+    return 0
+
+
+def _cmd_restore_orchestration_step(args) -> int:
+    if not args:
+        print("ERROR: --restore-orchestration-step needs RUN_ID|latest "
+              "--step STEP_ID --confirm-restore", file=sys.stderr)
+        return 1
+    step_arg = _flag_val(args, "--step")
+    if step_arg is None:
+        print("ERROR: restoration requires --step STEP_ID", file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    try:
+        run_id = _parse_id_or_latest(
+            conn, args[0], _latest_orchestration_run_id, "orchestration run")
+        result = cross_project_gated_restoration.CrossProjectGatedRestorationEngine(
+            conn).restore(run_id, int(step_arg),
+                          confirm_restore=("--confirm-restore" in args))
+    except (TypeError, ValueError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    _rule("CROSS-PROJECT ORCHESTRATION RESTORATION")
+    print(f"rollback id   : {result.rollback_id}")
+    print(f"run id        : {result.run_id}")
+    print(f"snapshot id   : {result.snapshot_id}")
+    print(f"restore id    : {result.restore_id}")
+    print(f"restored files: {result.restored_files}")
+    print(f"status        : {result.status}")
+    print("note          : step remains blocked; re-open via "
+          "--request-orchestration-retry")
+    return 0
+
+
+def _cmd_orchestration_step_rollbacks(args) -> int:
+    conn = database.init_db()
+    try:
+        run_id = int(args[0]) if args and not args[0].startswith("--") else None
+    except ValueError:
+        print(f"ERROR: invalid run id {args[0]}", file=sys.stderr)
+        return 1
+    rows = database.list_cross_project_orchestration_step_rollbacks(
+        conn, run_id=run_id)
+    _rule(f"ORCHESTRATION STEP ROLLBACKS ({len(rows)})")
+    if not rows:
+        print("(none)")
+    for row in rows:
+        print(f"#{row['id']} run={row['run_id']} step={row['run_step_id']} "
+              f"snapshot={row['snapshot_id']} restore={row['restore_id']} "
+              f"status={row['status']}")
+    return 0
+
+
+def _cmd_check_restoration_integrity(args) -> int:
+    if not args:
+        print("ERROR: --check-restoration-integrity needs RUN_ID|latest "
+              "--step STEP_ID", file=sys.stderr)
+        return 1
+    step_arg = _flag_val(args, "--step")
+    if step_arg is None:
+        print("ERROR: integrity check requires --step STEP_ID", file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    try:
+        run_id = _parse_id_or_latest(
+            conn, args[0], _latest_orchestration_run_id, "orchestration run")
+        run_step_id = _restoration_run_step_id(conn, run_id, int(step_arg))
+        check = cross_project_restoration_integrity.CrossProjectRestorationIntegrityChecker(
+            conn).check(run_id, run_step_id)
+    except (TypeError, ValueError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    _rule("CROSS-PROJECT RESTORATION INTEGRITY CHECK")
+    print(f"check id   : {check.id}")
+    print(f"run id     : {check.run_id}")
+    print(f"files      : matched={check.matched_files} "
+          f"mismatched={check.mismatched_files} missing={check.missing_files}")
+    print(f"status     : {check.status}")
+    return 0
+
+
+def _cmd_record_restoration_outcome(args) -> int:
+    if not args:
+        print("ERROR: --record-restoration-outcome needs RUN_ID|latest "
+              "--step STEP_ID", file=sys.stderr)
+        return 1
+    step_arg = _flag_val(args, "--step")
+    if step_arg is None:
+        print("ERROR: restoration outcome requires --step STEP_ID",
+              file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    try:
+        run_id = _parse_id_or_latest(
+            conn, args[0], _latest_orchestration_run_id, "orchestration run")
+        run_step_id = _restoration_run_step_id(conn, run_id, int(step_arg))
+        result = cross_project_restoration_outcomes.CrossProjectRestorationOutcomeBinder(
+            conn).record(run_id, run_step_id)
+    except (TypeError, ValueError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    _rule("CROSS-PROJECT RESTORATION OUTCOME")
+    print(f"record id  : {result.id}")
+    print(f"run id     : {result.run_id}")
+    print(f"attempt id : {result.attempt_id}")
+    print(f"outcome id : {result.outcome_id}")
+    print(f"status     : {result.status}")
+    return 0
+
+
+def _restoration_run_step_id(conn, run_id, step_id):
+    run = cross_project_orchestration_runs.CrossProjectOrchestrationRunManager(
+        conn).get_run(run_id)
+    if run is None:
+        raise ValueError(f"no cross-project orchestration run {run_id}")
+    for step in run.steps:
+        if step.step_id == step_id or step.stage10_step_id == step_id:
+            return step.id
+    raise ValueError(f"run {run.id} has no step {step_id}")
+
+
+def _cmd_restoration_status(args) -> int:
+    if not args:
+        print("ERROR: --restoration-status needs RUN_ID|latest", file=sys.stderr)
+        return 1
+    step_arg = _flag_val(args, "--step")
+    conn = database.init_db()
+    try:
+        run_id = _parse_id_or_latest(
+            conn, args[0], _latest_orchestration_run_id, "orchestration run")
+        status = cross_project_restoration_status.CrossProjectRestorationStatusResolver(
+            conn).resolve(run_id, step_id=int(step_arg) if step_arg else None)
+    except (TypeError, ValueError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    _rule("CROSS-PROJECT RESTORATION STATUS")
+    print(f"status id  : {status.id}")
+    print(f"run id     : {status.run_id}")
+    print(f"eligibility: {status.eligibility}")
+    print(f"previewed  : {status.previewed}")
+    print(f"restored   : {status.restored}")
+    print(f"integrity  : {status.integrity_status or '-'}")
+    print(f"next action: {status.next_action}")
+    return 0
+
+
+def _cmd_restoration_report(args) -> int:
+    if not args:
+        print("ERROR: --cross-project-restoration-report needs RUN_ID|latest",
+              file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    try:
+        run_id = _parse_id_or_latest(
+            conn, args[0], _latest_orchestration_run_id, "orchestration run")
+        engine = cross_project_restoration_reports.CrossProjectRestorationReportBuilder(
+            conn)
+        report = engine.build_report(run_id)
+        report_id = engine.save_report(report)
+        markdown_path = engine.save_markdown_report(report_id, report) if "--save-report" in args else None
+    except (TypeError, ValueError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    _rule("CROSS-PROJECT RESTORATION REPORT")
+    print(f"report id   : {report_id}")
+    print(f"run id      : {report.run_id}")
+    print(f"status      : {report.overall_status}")
+    print(f"summary     : {report.summary}")
+    print(f"next action : {report.next_action}")
+    if markdown_path:
+        print(f"markdown    : {markdown_path}")
+    return 0
+
+
+def _cmd_restoration_audit(args) -> int:
+    conn = database.init_db()
+    engine = cross_project_restoration_audit.CrossProjectRestorationAuditEngine(conn)
+    report = engine.build_report()
+    audit_id = engine.save_audit(report)
+    markdown_path = engine.save_markdown_report(audit_id, report) if "--save-report" in args else None
+    _rule("CROSS-PROJECT RESTORATION AUDIT")
+    print(f"audit id      : {audit_id}")
+    print(f"overall status: {report.overall_status}")
+    if markdown_path:
+        print(f"markdown      : {markdown_path}")
+    for check in report.checks:
+        print(f"- {check.status}: {check.name} — {check.message}")
+    return 0
+
+
+def _cmd_cross_project_stage13_audit(args) -> int:
+    conn = database.init_db()
+    engine = cross_project_stage13_audit.CrossProjectStage13AuditEngine(conn)
+    report = engine.build_report()
+    audit_id = engine.save_audit(report)
+    markdown_path = engine.save_markdown_report(audit_id, report) if "--save-report" in args else None
+    _rule("STAGE 13 FINAL AUDIT — ROLLBACK RESTORATION")
+    print(f"audit id      : {audit_id}")
+    print(f"overall status: {report.overall_status}")
+    print(f"stage 14 ready: {report.stage14_readiness.get('ready')}")
+    if markdown_path:
+        print(f"markdown      : {markdown_path}")
+    for check in report.checks:
+        print(f"- {check.status}: {check.name} — {check.message}")
+    return 0
+
+
 def _print_stage9_audit(report, audit_id=None, markdown_path=None) -> None:
     _rule("STAGE 9 FINAL AUDIT — CONTROLLED CROSS-PROJECT EXECUTION PLANNING")
     if audit_id is not None:
@@ -12375,6 +12648,27 @@ def main() -> int:
         return _cmd_window_retry_audit(args[1:])
     if args and args[0] == "--cross-project-stage12-audit":
         return _cmd_cross_project_stage12_audit(args[1:])
+    # --- Stage 13: Operator Rollback Restoration -------------------------
+    if args and args[0] == "--resolve-orchestration-restoration":
+        return _cmd_resolve_orchestration_restoration(args[1:])
+    if args and args[0] == "--preview-orchestration-restoration":
+        return _cmd_preview_orchestration_restoration(args[1:])
+    if args and args[0] == "--restore-orchestration-step":
+        return _cmd_restore_orchestration_step(args[1:])
+    if args and args[0] == "--orchestration-step-rollbacks":
+        return _cmd_orchestration_step_rollbacks(args[1:])
+    if args and args[0] == "--check-restoration-integrity":
+        return _cmd_check_restoration_integrity(args[1:])
+    if args and args[0] == "--record-restoration-outcome":
+        return _cmd_record_restoration_outcome(args[1:])
+    if args and args[0] == "--restoration-status":
+        return _cmd_restoration_status(args[1:])
+    if args and args[0] == "--cross-project-restoration-report":
+        return _cmd_restoration_report(args[1:])
+    if args and args[0] == "--cross-project-restoration-audit":
+        return _cmd_restoration_audit(args[1:])
+    if args and args[0] == "--cross-project-stage13-audit":
+        return _cmd_cross_project_stage13_audit(args[1:])
 
     (commit, commit_message, loop_name, overrides, min_conf, workspace_name,
      require_approval, auto_approve_low_risk, approval_mode,

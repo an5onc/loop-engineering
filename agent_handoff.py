@@ -46,6 +46,9 @@ REQUIRED_IGNORES = [
     "cross_project_window_retry_reports/",
     "cross_project_window_retry_audit_reports/",
     "cross_project_stage12_audit_reports/",
+    "cross_project_restoration_reports/",
+    "cross_project_restoration_audit_reports/",
+    "cross_project_stage13_audit_reports/",
 ]
 
 CORE_VERIFICATION = [
@@ -204,6 +207,21 @@ def build_handoff(repo_root="."):
     a("- Advance (now window-gated): `--advance-cross-project-orchestration RUN_ID --step STEP_ID --confirmation CONFIRMATION_ID --snapshot SNAPSHOT_ID --confirm-execution`; retries additionally need an authorization and a fresh confirmation")
     a("- Status/report/audit: `--window-retry-status RUN_ID` -> `--cross-project-window-retry-report RUN_ID` -> `--cross-project-window-retry-audit` -> `--cross-project-stage12-audit`")
     a("- No automatic execution, no allowlist expansion (audited dynamically), no confirmation reuse within a step.")
+    a("")
+    a("## Operator Rollback Restoration (Stage 13)")
+    a("")
+    a("Stage 13 restores the Stage 10 snapshot behind a blocked orchestration")
+    a("step, through the orchestration layer. All file writes delegate to the")
+    a("Stage 10 rollback engine; Stage 13 adds no new write or execution path.")
+    a("Each restore requires a fresh preview of the same snapshot since the")
+    a("latest restore.")
+    a("Restoration never re-opens the step — only a Stage 12 retry does.")
+    a("")
+    a("- Resolve/preview: `--resolve-orchestration-restoration RUN_ID --step STEP_ID` -> `--preview-orchestration-restoration RUN_ID --step STEP_ID`")
+    a("- Restore (preview-first, fail-closed): `--restore-orchestration-step RUN_ID --step STEP_ID --confirm-restore`")
+    a("- Verify/record: `--check-restoration-integrity RUN_ID --step STEP_ID` -> `--record-restoration-outcome RUN_ID --step STEP_ID`")
+    a("- Status/report/audit: `--restoration-status RUN_ID` -> `--cross-project-restoration-report RUN_ID` -> `--cross-project-restoration-audit` -> `--cross-project-stage13-audit`")
+    a("- Restoration is not window-gated by design (windows govern command execution; restore is recovery); it is gated by preview-first + literal `--confirm-restore`.")
     a("")
     a("## Next Agent Checklist")
     a("")

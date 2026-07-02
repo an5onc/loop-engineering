@@ -57,7 +57,7 @@ class CrossProjectWindowRetryStatusTests(unittest.TestCase):
         status = self.resolver.resolve(self.run_id, step_id=11)
         self.assertIn("set a retry policy", status.next_action)
 
-    def test_blocked_step_with_budget_asks_for_retry_request(self):
+    def test_blocked_step_with_budget_suggests_restore_first(self):
         window = self.windows.define_window(self.run_id, "w")
         self.gate.open_window(window.id)
         database.update_cross_project_orchestration_run_step(
@@ -67,7 +67,22 @@ class CrossProjectWindowRetryStatusTests(unittest.TestCase):
         status = self.resolver.resolve(self.run_id, step_id=11)
         self.assertEqual(status.retries_used, 0)
         self.assertEqual(status.retries_allowed, 2)
+        self.assertIn("restore first", status.next_action)
         self.assertIn("request an authorized retry", status.next_action)
+
+    def test_blocked_step_after_restore_asks_for_retry_request(self):
+        window = self.windows.define_window(self.run_id, "w")
+        self.gate.open_window(window.id)
+        database.update_cross_project_orchestration_run_step(
+            self.conn, self.run_step_id, "blocked")
+        self.policies.set_policy(self.run_id, 2)
+        self._seed_advancement()
+        database.save_cross_project_orchestration_step_rollback(
+            self.conn, self.run_id, self.run_step_id, 11, 1, 1, "restored",
+            "restored for test")
+        status = self.resolver.resolve(self.run_id, step_id=11)
+        self.assertTrue(status.next_action.startswith(
+            "request an authorized retry"))
 
     def test_authorized_request_asks_for_fresh_confirmation_advance(self):
         window = self.windows.define_window(self.run_id, "w")
@@ -93,6 +108,7 @@ class CrossProjectWindowRetryStatusTests(unittest.TestCase):
         status = self.resolver.resolve(self.run_id, step_id=11)
         self.assertEqual(status.retries_used, 1)
         self.assertIn("retry budget exhausted", status.next_action)
+        self.assertIn("--restoration-status", status.next_action)
 
 
 if __name__ == "__main__":

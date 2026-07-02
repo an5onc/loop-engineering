@@ -2852,6 +2852,149 @@ CREATE TABLE IF NOT EXISTS cross_project_stage12_audit_markdown_reports (
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (stage12_audit_id) REFERENCES cross_project_stage12_audits(id)
 );
+
+-- ===================================================================== --
+-- Stage 13 — Operator-Driven Rollback Restoration                       --
+-- ===================================================================== --
+
+CREATE TABLE IF NOT EXISTS cross_project_restoration_targets (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id INTEGER NOT NULL,
+    run_step_id INTEGER NOT NULL,
+    orchestration_step_id INTEGER,
+    advancement_id INTEGER,
+    snapshot_id INTEGER,
+    attempt_id INTEGER,
+    status TEXT,
+    reason TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (run_id) REFERENCES cross_project_orchestration_runs(id)
+);
+
+CREATE TABLE IF NOT EXISTS cross_project_restoration_integrity_checks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id INTEGER NOT NULL,
+    run_step_id INTEGER NOT NULL,
+    rollback_id INTEGER,
+    snapshot_id INTEGER,
+    restore_id INTEGER,
+    generated_at TEXT,
+    total_files INTEGER,
+    matched_files INTEGER,
+    mismatched_files INTEGER,
+    missing_files INTEGER,
+    status TEXT,
+    detail_json TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (run_id) REFERENCES cross_project_orchestration_runs(id)
+);
+
+CREATE TABLE IF NOT EXISTS cross_project_restoration_outcomes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id INTEGER NOT NULL,
+    run_step_id INTEGER NOT NULL,
+    rollback_id INTEGER,
+    attempt_id INTEGER,
+    outcome_id INTEGER,
+    status TEXT,
+    summary TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (run_id) REFERENCES cross_project_orchestration_runs(id)
+);
+
+CREATE TABLE IF NOT EXISTS cross_project_restoration_statuses (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id INTEGER NOT NULL,
+    run_step_id INTEGER,
+    eligibility TEXT,
+    previewed INTEGER,
+    restored INTEGER,
+    integrity_status TEXT,
+    next_action TEXT,
+    detail_json TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (run_id) REFERENCES cross_project_orchestration_runs(id)
+);
+
+CREATE TABLE IF NOT EXISTS cross_project_restoration_reports (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id INTEGER NOT NULL,
+    generated_at TEXT,
+    overall_status TEXT,
+    summary TEXT,
+    next_action TEXT,
+    targets_json TEXT,
+    rollbacks_json TEXT,
+    integrity_json TEXT,
+    safety_notes_json TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (run_id) REFERENCES cross_project_orchestration_runs(id)
+);
+
+CREATE TABLE IF NOT EXISTS cross_project_restoration_markdown_reports (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    report_id INTEGER NOT NULL,
+    report_path TEXT,
+    report_format TEXT,
+    content_hash TEXT,
+    bytes_written INTEGER,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (report_id) REFERENCES cross_project_restoration_reports(id)
+);
+
+CREATE TABLE IF NOT EXISTS cross_project_restoration_audits (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    generated_at TEXT,
+    overall_status TEXT,
+    total_checks INTEGER,
+    passed_checks INTEGER,
+    warning_checks INTEGER,
+    failed_checks INTEGER,
+    blocked_checks INTEGER,
+    checks_json TEXT,
+    recommendations_json TEXT,
+    safety_notes_json TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS cross_project_restoration_audit_markdown_reports (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    audit_id INTEGER NOT NULL,
+    report_path TEXT,
+    report_format TEXT,
+    content_hash TEXT,
+    bytes_written INTEGER,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (audit_id) REFERENCES cross_project_restoration_audits(id)
+);
+
+CREATE TABLE IF NOT EXISTS cross_project_stage13_audits (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    generated_at TEXT,
+    overall_status TEXT,
+    total_checks INTEGER,
+    passed_checks INTEGER,
+    warning_checks INTEGER,
+    failed_checks INTEGER,
+    blocked_checks INTEGER,
+    checks_json TEXT,
+    recommendations_json TEXT,
+    stage14_readiness_json TEXT,
+    safety_notes_json TEXT,
+    next_steps_json TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS cross_project_stage13_audit_markdown_reports (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    stage13_audit_id INTEGER NOT NULL,
+    report_path TEXT,
+    report_format TEXT,
+    content_hash TEXT,
+    bytes_written INTEGER,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (stage13_audit_id) REFERENCES cross_project_stage13_audits(id)
+);
 """
 
 
@@ -8097,6 +8240,12 @@ def save_cross_project_orchestration_step_rollback(
     return cur.lastrowid
 
 
+def get_cross_project_orchestration_step_rollback(conn, rollback_id):
+    return conn.execute(
+        "SELECT * FROM cross_project_orchestration_step_rollbacks WHERE id=?",
+        (rollback_id,)).fetchone()
+
+
 def list_cross_project_orchestration_step_rollbacks(conn, run_id=None, limit=100):
     if run_id is not None:
         return conn.execute(
@@ -8546,5 +8695,246 @@ def save_cross_project_stage12_audit_markdown_report(
         "(stage12_audit_id, report_path, report_format, content_hash, bytes_written) "
         "VALUES (?,?,?,?,?)",
         (stage12_audit_id, report_path, report_format, content_hash, bytes_written))
+    conn.commit()
+    return cur.lastrowid
+
+
+# ------------------------------------------------------------------------- #
+# Stage 13 — Operator-Driven Rollback Restoration                           #
+# ------------------------------------------------------------------------- #
+
+def save_cross_project_restoration_target(
+        conn, run_id, run_step_id, orchestration_step_id, advancement_id,
+        snapshot_id, attempt_id, status, reason) -> int:
+    cur = conn.execute(
+        "INSERT INTO cross_project_restoration_targets (run_id, run_step_id, "
+        "orchestration_step_id, advancement_id, snapshot_id, attempt_id, status, "
+        "reason) VALUES (?,?,?,?,?,?,?,?)",
+        (run_id, run_step_id, orchestration_step_id, advancement_id, snapshot_id,
+         attempt_id, status, reason))
+    conn.commit()
+    return cur.lastrowid
+
+
+def get_cross_project_restoration_target(conn, target_id):
+    return conn.execute(
+        "SELECT * FROM cross_project_restoration_targets WHERE id=?",
+        (target_id,)).fetchone()
+
+
+def list_cross_project_restoration_targets(conn, run_id=None, run_step_id=None,
+                                           limit=100):
+    if run_step_id is not None:
+        return conn.execute(
+            "SELECT * FROM cross_project_restoration_targets "
+            "WHERE run_step_id=? ORDER BY id DESC LIMIT ?",
+            (run_step_id, limit)).fetchall()
+    if run_id is not None:
+        return conn.execute(
+            "SELECT * FROM cross_project_restoration_targets "
+            "WHERE run_id=? ORDER BY id DESC LIMIT ?", (run_id, limit)).fetchall()
+    return conn.execute(
+        "SELECT * FROM cross_project_restoration_targets ORDER BY id DESC LIMIT ?",
+        (limit,)).fetchall()
+
+
+def save_cross_project_restoration_integrity_check(
+        conn, run_id, run_step_id, rollback_id, snapshot_id, restore_id,
+        generated_at, total_files, matched_files, mismatched_files,
+        missing_files, status, detail_json) -> int:
+    cur = conn.execute(
+        "INSERT INTO cross_project_restoration_integrity_checks (run_id, "
+        "run_step_id, rollback_id, snapshot_id, restore_id, generated_at, "
+        "total_files, matched_files, mismatched_files, missing_files, status, "
+        "detail_json) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+        (run_id, run_step_id, rollback_id, snapshot_id, restore_id, generated_at,
+         total_files, matched_files, mismatched_files, missing_files, status,
+         detail_json))
+    conn.commit()
+    return cur.lastrowid
+
+
+def get_cross_project_restoration_integrity_check(conn, check_id):
+    return conn.execute(
+        "SELECT * FROM cross_project_restoration_integrity_checks WHERE id=?",
+        (check_id,)).fetchone()
+
+
+def list_cross_project_restoration_integrity_checks(conn, run_id=None,
+                                                    run_step_id=None, limit=100):
+    if run_step_id is not None:
+        return conn.execute(
+            "SELECT * FROM cross_project_restoration_integrity_checks "
+            "WHERE run_step_id=? ORDER BY id DESC LIMIT ?",
+            (run_step_id, limit)).fetchall()
+    if run_id is not None:
+        return conn.execute(
+            "SELECT * FROM cross_project_restoration_integrity_checks "
+            "WHERE run_id=? ORDER BY id DESC LIMIT ?", (run_id, limit)).fetchall()
+    return conn.execute(
+        "SELECT * FROM cross_project_restoration_integrity_checks "
+        "ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
+
+
+def save_cross_project_restoration_outcome(
+        conn, run_id, run_step_id, rollback_id, attempt_id, outcome_id, status,
+        summary) -> int:
+    cur = conn.execute(
+        "INSERT INTO cross_project_restoration_outcomes (run_id, run_step_id, "
+        "rollback_id, attempt_id, outcome_id, status, summary) "
+        "VALUES (?,?,?,?,?,?,?)",
+        (run_id, run_step_id, rollback_id, attempt_id, outcome_id, status,
+         summary))
+    conn.commit()
+    return cur.lastrowid
+
+
+def get_cross_project_restoration_outcome(conn, outcome_id):
+    return conn.execute(
+        "SELECT * FROM cross_project_restoration_outcomes WHERE id=?",
+        (outcome_id,)).fetchone()
+
+
+def list_cross_project_restoration_outcomes(conn, run_id=None, limit=100):
+    if run_id is not None:
+        return conn.execute(
+            "SELECT * FROM cross_project_restoration_outcomes "
+            "WHERE run_id=? ORDER BY id DESC LIMIT ?", (run_id, limit)).fetchall()
+    return conn.execute(
+        "SELECT * FROM cross_project_restoration_outcomes ORDER BY id DESC LIMIT ?",
+        (limit,)).fetchall()
+
+
+def save_cross_project_restoration_status(
+        conn, run_id, run_step_id, eligibility, previewed, restored,
+        integrity_status, next_action, detail_json) -> int:
+    cur = conn.execute(
+        "INSERT INTO cross_project_restoration_statuses (run_id, run_step_id, "
+        "eligibility, previewed, restored, integrity_status, next_action, "
+        "detail_json) VALUES (?,?,?,?,?,?,?,?)",
+        (run_id, run_step_id, eligibility, previewed, restored, integrity_status,
+         next_action, detail_json))
+    conn.commit()
+    return cur.lastrowid
+
+
+def get_cross_project_restoration_status(conn, status_id):
+    return conn.execute(
+        "SELECT * FROM cross_project_restoration_statuses WHERE id=?",
+        (status_id,)).fetchone()
+
+
+def list_cross_project_restoration_statuses(conn, run_id=None, limit=50):
+    if run_id is not None:
+        return conn.execute(
+            "SELECT * FROM cross_project_restoration_statuses "
+            "WHERE run_id=? ORDER BY id DESC LIMIT ?", (run_id, limit)).fetchall()
+    return conn.execute(
+        "SELECT * FROM cross_project_restoration_statuses ORDER BY id DESC LIMIT ?",
+        (limit,)).fetchall()
+
+
+def save_cross_project_restoration_report(
+        conn, run_id, generated_at, overall_status, summary, next_action,
+        targets_json, rollbacks_json, integrity_json, safety_notes_json) -> int:
+    cur = conn.execute(
+        "INSERT INTO cross_project_restoration_reports (run_id, generated_at, "
+        "overall_status, summary, next_action, targets_json, rollbacks_json, "
+        "integrity_json, safety_notes_json) VALUES (?,?,?,?,?,?,?,?,?)",
+        (run_id, generated_at, overall_status, summary, next_action,
+         targets_json, rollbacks_json, integrity_json, safety_notes_json))
+    conn.commit()
+    return cur.lastrowid
+
+
+def get_cross_project_restoration_report(conn, report_id):
+    return conn.execute(
+        "SELECT * FROM cross_project_restoration_reports WHERE id=?",
+        (report_id,)).fetchone()
+
+
+def list_cross_project_restoration_reports(conn, limit=50):
+    return conn.execute(
+        "SELECT * FROM cross_project_restoration_reports ORDER BY id DESC LIMIT ?",
+        (limit,)).fetchall()
+
+
+def save_cross_project_restoration_markdown_report(
+        conn, report_id, report_path, report_format, content_hash,
+        bytes_written) -> int:
+    cur = conn.execute(
+        "INSERT INTO cross_project_restoration_markdown_reports "
+        "(report_id, report_path, report_format, content_hash, bytes_written) "
+        "VALUES (?,?,?,?,?)",
+        (report_id, report_path, report_format, content_hash, bytes_written))
+    conn.commit()
+    return cur.lastrowid
+
+
+def save_cross_project_restoration_audit(
+        conn, generated_at, overall_status, total_checks, passed_checks,
+        warning_checks, failed_checks, blocked_checks, checks_json,
+        recommendations_json, safety_notes_json) -> int:
+    cur = conn.execute(
+        "INSERT INTO cross_project_restoration_audits (generated_at, "
+        "overall_status, total_checks, passed_checks, warning_checks, "
+        "failed_checks, blocked_checks, checks_json, recommendations_json, "
+        "safety_notes_json) VALUES (?,?,?,?,?,?,?,?,?,?)",
+        (generated_at, overall_status, total_checks, passed_checks, warning_checks,
+         failed_checks, blocked_checks, checks_json, recommendations_json,
+         safety_notes_json))
+    conn.commit()
+    return cur.lastrowid
+
+
+def list_cross_project_restoration_audits(conn, limit=20):
+    return conn.execute(
+        "SELECT * FROM cross_project_restoration_audits ORDER BY id DESC LIMIT ?",
+        (limit,)).fetchall()
+
+
+def save_cross_project_restoration_audit_markdown_report(
+        conn, audit_id, report_path, report_format, content_hash,
+        bytes_written) -> int:
+    cur = conn.execute(
+        "INSERT INTO cross_project_restoration_audit_markdown_reports "
+        "(audit_id, report_path, report_format, content_hash, bytes_written) "
+        "VALUES (?,?,?,?,?)",
+        (audit_id, report_path, report_format, content_hash, bytes_written))
+    conn.commit()
+    return cur.lastrowid
+
+
+def save_cross_project_stage13_audit(
+        conn, generated_at, overall_status, total_checks, passed_checks,
+        warning_checks, failed_checks, blocked_checks, checks_json,
+        recommendations_json, stage14_readiness_json, safety_notes_json,
+        next_steps_json) -> int:
+    cur = conn.execute(
+        "INSERT INTO cross_project_stage13_audits (generated_at, overall_status, "
+        "total_checks, passed_checks, warning_checks, failed_checks, "
+        "blocked_checks, checks_json, recommendations_json, stage14_readiness_json, "
+        "safety_notes_json, next_steps_json) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+        (generated_at, overall_status, total_checks, passed_checks, warning_checks,
+         failed_checks, blocked_checks, checks_json, recommendations_json,
+         stage14_readiness_json, safety_notes_json, next_steps_json))
+    conn.commit()
+    return cur.lastrowid
+
+
+def list_cross_project_stage13_audits(conn, limit=20):
+    return conn.execute(
+        "SELECT * FROM cross_project_stage13_audits ORDER BY id DESC LIMIT ?",
+        (limit,)).fetchall()
+
+
+def save_cross_project_stage13_audit_markdown_report(
+        conn, stage13_audit_id, report_path, report_format, content_hash,
+        bytes_written) -> int:
+    cur = conn.execute(
+        "INSERT INTO cross_project_stage13_audit_markdown_reports "
+        "(stage13_audit_id, report_path, report_format, content_hash, bytes_written) "
+        "VALUES (?,?,?,?,?)",
+        (stage13_audit_id, report_path, report_format, content_hash, bytes_written))
     conn.commit()
     return cur.lastrowid

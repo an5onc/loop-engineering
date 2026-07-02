@@ -221,80 +221,142 @@ Stage 10.
   `cross_project_window_retry_audit_reports/`,
   `cross_project_stage12_audit_reports/`.
 
+## Operator Rollback Restoration (Stage 13)
+
+Stage 13 lets an operator restore the Stage 10 snapshot behind a blocked
+orchestration step, through the orchestration layer. It introduces no new
+execution or file-write path.
+
+- All file writes delegate to the Stage 10 rollback engine
+  (`cross_project_execution_rollback.py`), which re-validates containment and
+  protected paths at restore time. Do not add an alternate restore path.
+- Restoration is fail-closed: it requires an eligible blocked step (latest
+  advancement blocked, with a snapshot), a fresh preview of the same snapshot
+  since the latest restore, and the literal `--confirm-restore` flag.
+- Restoration never re-opens the step or run. Only a Stage 12 retry
+  authorization (`--request-orchestration-retry`) may re-open a blocked step;
+  the audits verify this.
+- By design, restoration is not gated by execution windows: windows govern
+  when commands may run; restoration is recovery.
+- The integrity check re-hashes restored files against the snapshot manifest
+  (read-only); the outcome binder records the Stage 10 `rolled_back` outcome.
+- Typical flow:
+  `--resolve-orchestration-restoration RUN_ID --step STEP_ID`
+  → `--preview-orchestration-restoration RUN_ID --step STEP_ID`
+  → `--restore-orchestration-step RUN_ID --step STEP_ID --confirm-restore`
+  → `--check-restoration-integrity RUN_ID --step STEP_ID`
+  → `--record-restoration-outcome RUN_ID --step STEP_ID`
+  → `--restoration-status RUN_ID` → Stage 12 retry flow
+  → `--cross-project-restoration-audit` / `--cross-project-stage13-audit`.
+- Stage 13 generated reports are ignored runtime artifacts:
+  `cross_project_restoration_reports/`,
+  `cross_project_restoration_audit_reports/`,
+  `cross_project_stage13_audit_reports/`.
+
 
 <claude-mem-context>
 # Memory Context
 
-# [loop-engineering] recent context, 2026-06-30 8:28am MDT
+# [loop-engineering] recent context, 2026-07-01 8:32pm MDT
 
 Legend: 🎯session 🔴bugfix 🟣feature 🔄refactor ✅change 🔵discovery ⚖️decision 🚨security_alert 🔐security_note
 Format: ID TIME TYPE TITLE
 Fetch details: get_observations([IDs]) | Search: mem-search skill
 
-Stats: 50 obs (23,001t read) | 1,310,859t work | 98% savings
+Stats: 50 obs (26,957t read) | 472,721t work | 94% savings
 
-### Jun 27, 2026
-S135 Complete comprehensive re-audit of Stage 3.2.1/3.2.2 hotfixes in isolated environment, verifying all four prior warnings are fixed and no security regressions introduced; confirm system ready for Stage 3.3. (Jun 27 at 4:48 PM)
-S136 Build and verify Stage 3.3 (External Agent Job Packets) — subsystem for creating, storing, validating, and resuming external agent handoffs with full safety checks and database persistence. (Jun 27 at 4:48 PM)
-S137 Complete Stage 3.4 external agent job queue with priority/labels/notes metadata, archive/unarchive lifecycle, and defensive type safety for migrated SQLite columns (Jun 27 at 5:07 PM)
-S138 Build Stage 3.5 — External Agent Job Dashboard & Triage layer for Loop Engineering framework; verify all functionality and safety constraints. (Jun 27 at 5:36 PM)
-1539 5:39p 🔵 Loop Engineering framework includes external dashboard and job management system
-1540 5:40p 🔵 Dashboard operates in DB-only mode independent of Ollama availability
-1541 " 🟣 Stage 3.5 — External Agent Job Dashboard with triage filters
-1542 " 🔵 Dashboard implementation complete; all compilation, audit, and rendering tests pass
-S139 Verify and document completion of Stage 3.6 — External Agent Completion Inbox System: a file-drop workflow enabling external agents to complete jobs by dropping completion.json or completion.txt into job directories, followed by sync commands to import and resume. (Jun 27 at 5:40 PM)
-1543 5:41p ✅ Infrastructure for external completion inbox added to database schema
-1544 5:43p 🟣 Stage 3.6 — External Agent Completion Inbox implemented
-1545 " ✅ External completion inbox integrated into quality gate system
-1546 " ✅ External completion inbox stop condition added to stop-conditions registry
-1547 5:44p 🟣 External completion inbox CLI commands integrated into main.py
-1548 " 🟣 External completion inbox commands wired into main() dispatcher
-S140 Build and validate external job batch operations for Loop Engineering framework Stage 1.2, including proper error handling, event recording, and audit trails (Jun 27 at 5:48 PM)
-S141 Continuation of Loop Engineering Stage 1 development: Validate completion of Stage 3.7 External Agent Batch Operations feature after comprehensive testing in prior session (Jun 27 at 5:56 PM)
-S142 Complete Stage 3.8 External Agent Batch Reports: verify implementation, document feature in README, run final regression and safety tests. (Jun 27 at 5:58 PM)
-S143 Perform final Stage 4 audit of Loop Engineering Observatory subsystem (stages 4.0–4.9) to verify stability, safety, completeness, and Stage 5 readiness. Independent verification across 11 subsystems without implementing new features, committing changes, or executing suggested remediation commands. (Jun 27 at 6:06 PM)
-1592 6:13p 🔵 Existing code structure reviewed for Stage 3.9 integration points
-1593 " 🟣 Added external_job_health_events database table to schema
-1594 6:14p 🟣 Added database functions for external job health event persistence
-1596 9:55p 🟣 Observatory Trend Analysis Engine (Stage 4.2)
-1597 10:04p 🟣 Observatory Failure Drilldown (Stage 4.3) — Complete Implementation
-1598 10:36p 🟣 Observatory Remediation Plans (Stage 4.4) — Turn findings into structured improvement plans
 ### Jun 28, 2026
-1600 9:09p 🟣 Stage 4.6 Observatory Action Review implemented
-1601 9:45p 🟣 Observatory Action Execution Handoff (Stage 4.7) - Complete Implementation
-1602 9:55p 🟣 Stage 4.8 — Observatory Action Handoff Review layer implemented
-1603 10:19p 🔵 Baseline safety counts recorded for Stage 4 audit
-1604 " 🔵 audit_hotfix.py validation: 38/38 safety checks passed
-1605 10:20p 🔵 Stage 4 regression test suite: 48/48 tests passed
-1606 " 🔵 Stage 4.0 snapshot commands: all successful, no side effects
-1607 " 🔵 Stage 4.1 reports: created successfully, no side effects
-1608 " 🔵 Stage 4.2 trends: analysis complete with report persistence, no side effects
-1609 10:21p 🔵 Stage 4.3 failure drilldown: all clustering and filtering work, no side effects
-1610 " 🔵 Stage 4.3 failure clustering: reasonable classifications and cluster distribution
-1611 " 🔵 Stage 4.4 remediation plans: all sources and filters work, no side effects
-1612 " 🔵 Stage 4.5 action queue: works successfully, duplicate prevention verified
-1613 10:23p 🔵 Observatory action storage: 19 tables in database, dedup working at row level
-1614 " 🔵 Observatory action storage verified: 9 action items with no database side effects
-1615 " 🔵 Stage 4.6 action review: all grouping dimensions work, no side effects
-1616 " 🔵 Stage 4.7 dry-run handoffs: all types safe, no loops/jobs created
-1617 " 🔵 Handoff creation requires explicit confirmation flags, defaults to dry-run
-1618 10:24p 🔵 Stage 4.8 handoff review: all grouping and filtering work, no side effects
-1619 " 🔵 Stage 4.9 audit passed with 36/36 checks, Stage 5 readiness confirmed
-1620 " 🔵 Observatory commands resilient to invalid Ollama: all exit 0 with no errors
-1621 " 🔵 Core command regression: all six core commands still working
-1622 " 🔵 Stage 4 audit complete: all sections pass, safety confirmed, Stage 5 ready
-1623 10:25p 🔵 Final validation: no protected content leaked, ResourceWarnings persist
-1624 10:53p 🔵 Stage 4 Observatory subsystem files ready for commit
-1625 10:55p 🔵 Stage 4 Observatory subsystem dependency structure identified
-1626 10:58p ✅ .gitignore updated to exclude Stage 4 report directories
-1627 " 🔵 Stage 4 pre-commit verification passed all checks
-1628 10:59p ✅ 54 source and documentation files staged for Stage 4 commit
-1629 11:00p 🔵 Stage 4 commit staged changeset verified: 57 files, 23,530 insertions
-1630 " 🟣 Stage 4 Observatory subsystem committed to repository
-1631 11:01p 🔵 Post-commit verification: Stage 4 commit successful, working tree clean
-S144 Commit Stage 4 Observatory subsystem safely to Git—create a clean, verified commit with only Stage 4 source, tests, and documentation; exclude runtime artifacts and generated reports. (Jun 28 at 11:01 PM)
-1632 11:04p 🟣 Stage 4.9 Observatory Final Audit and Stage 5 Readiness Summary
-1633 11:27p 🟣 Stage 5.0 Loop Improvement Engine implemented and verified
+S145 Build Stage 7 of the Loop Engineering framework: a safe, metadata-only multi-project operations layer enabling project registration, health inspection, cross-project work planning, approval gating, handoff generation, and scheduling metadata recording—all without hidden writes, command execution, model calls, or cross-project mutation without approval. (Jun 28 at 11:01 PM)
+### Jun 30, 2026
+S158 Full audit of Stage 9 pulled from remote to verify everything works as expected and identify any required changes (Jun 30 at 9:04 AM)
+### Jul 1, 2026
+S160 Audit Stage 10 implementation: verify compilation, tests, audits, and execution safety gates for readiness. (Jul 1 at 1:53 PM)
+S161 Clarification on whether metadata is placeholder/test data requiring re-execution, or real system data; whether the system works now or requires rebuilding. (Jul 1 at 2:44 PM)
+S164 User asked if they should proceed to the next stage or if alternatives are recommended; Claude recommended dogfooding Stages 7-10 on a real project before building Stage 11 (Jul 1 at 2:51 PM)
+S165 Stage 7→10 dogfood execution plan review and real-project integration testing (Jul 1 at 3:03 PM)
+S169 Stage 11 dogfood testing validation completed; ready to confirm Stage 12 next steps (Jul 1 at 3:13 PM)
+S173 Design Stage 12 implementation plan for controlled execution windows and limited retry policy, layered on Stage 11 orchestration (Jul 1 at 3:49 PM)
+S175 Complete implementation, comprehensive testing, and documentation of Stage 12 (Execution Windows & Retry Policy) for the loop-engineering orchestration framework (Jul 1 at 6:52 PM)
+1882 7:16p 🔵 Stage 11 orchestration safety validation completed
+1883 " 🔵 Stage 12 execution windows and retry policy infrastructure verified
+1884 " 🔵 Stage 12 window and retry policy validation enforces run context requirement
+1885 7:17p 🔵 Full unittest suite confirms fail-safe automation safeguards
+1886 7:20p 🔵 Full test suite passes: 433 tests with zero failures
+1887 " 🔵 Audit hotfix verification suite passes all 38 checks
+1888 7:21p ✅ README.md updated with comprehensive Stage 12 documentation
+1889 " 🔵 HANDOFF.md generated from agent_handoff.py; Stage 12 section missing
+1890 7:22p 🔵 REQUIRED_IGNORES list ends at Stage 11; Stage 12 patterns missing
+1891 " ✅ REQUIRED_IGNORES updated with Stage 12 artifact directory patterns
+1892 " ✅ agent_handoff.py updated with comprehensive Stage 12 section
+1893 " 🔵 test_agent_handoff.py lacks Stage 12 content assertions
+1894 7:23p 🔵 test_agent_handoff.py test helper has incomplete .gitignore and missing Stage 12 assertions
+1895 " ✅ test_agent_handoff.py updated with Stage 12 content assertions
+1896 " 🔵 HANDOFF.md regenerated with Stage 12; all handoff tests passing
+1897 7:24p 🔵 AGENTS.md ends at Stage 11; missing Stage 12 documentation section
+1898 " 🔵 AGENTS.md Stage 11 section structure clearly defined; ready for Stage 12 insertion
+1899 " ✅ AGENTS.md updated with comprehensive Stage 12 section
+1900 7:25p 🔵 Stage 12 implementation complete and verified: 58 tests passing
+1901 7:26p ✅ Stage 12 comprehensive dogfood test script created
+1902 7:27p 🔵 Stage 12 dogfood test completed successfully: both passes OK
+1903 7:28p 🔵 Stage 12 implementation complete: 8 files modified, 20 new files added
+1907 7:42p 🟣 Stage 12 Complete — Execution Windows & Retry Policy
+1911 7:43p 🔵 Stage 13 Foundation: Precise Architecture of Stages 10–12 Rollback/Snapshot Machinery
+1913 7:50p 🔵 Stage 10–12 Rollback/Snapshot Architecture: Complete Inventory for Stage 13 Implementation
+1914 7:56p 🔵 Stage 11 dogfood testing completed with fail-closed safety validation
+1915 " 🔵 Stage 12 architecture: Multi-layer fail-closed gating for operator-driven orchestration advancement
+1916 7:57p 🔵 Stage 12.7-12.8: Window & Retry reporting and runtime audit systems
+1917 7:58p 🔵 Stage 12 CLI integration and operator workflow documented in agent handoff
+1918 " 🔵 Execution outcomes track rollback restores; restore requires explicit confirmation
+1919 8:02p 🔵 Stage 11 orchestration dogfood testing validated successfully
+1920 8:03p ⚖️ Stage 13 implementation plan designed: controlled operator-driven rollback restoration
+1921 8:04p ✅ Stage 13 implementation plan documented in persistent artifact
+1922 8:07p 🔵 Stage 11 orchestration safety controls validated end-to-end
+1923 8:08p ⚖️ Stage 13 architecture designed: operator-driven rollback restoration with preview-first invariant
+1924 " ✅ Stage 13 implementation sequenced into 8 atomic tasks; Stage 10 foundation verified
+1925 8:09p ✅ Database schema extended with 9 Stage 13 restoration tables
+1971 8:23p 🟣 Orchestration advancement fail-closed behavior verified
+1972 " 🟣 Cross-project orchestration execution tracking implemented
+1973 " 🟣 Stage 7→11 metadata flow end-to-end validated
+1974 " 🔵 Disposable project isolation maintained data integrity
+1975 8:24p 🟣 Stage 11 Orchestration Safety Validation Completed
+1976 " 🔵 Stage 13 Rollback Restoration Safety Validated
+1977 " ✅ Stage 13 Operator-Driven Rollback Restoration Documented
+1978 " ✅ Stage 13 Agent Contract and Handoff Configuration Updated
+1979 8:25p ✅ Stage 13 Integrated into Agent Handoff Generation and Tests
+1980 8:27p 🔵 Stage 13 Integration Verified: Full Test Suite Passing
+1981 8:28p 🟣 Stage 13 Two-Pass Dogfood Test Driver Implemented
+1982 8:29p 🔵 Stage 13 Dogfood Validation Complete: Both Passes Successful
+1983 " 🔵 Stage 13 Implementation Complete: 28 Changes Ready for Commit
+S178 Complete Stage 13 operator-driven rollback restoration implementation, validation, and integration with documentation and test infrastructure (Jul 1 at 8:30 PM)
+**Investigated**: - Stage 13 architecture for fail-closed restoration (preview-first, --confirm-restore gate)
+    - Integration points with Stage 10 rollback engine (delegation model, no new write path)
+    - Interaction with Stage 12 retry flow (step stays blocked until retry authorization)
+    - Metadata tracking across restoration targets, previews, restores, integrity checks, outcomes
+    - Audit chain (restoration audit, window-retry audit, stage12 audit, stage13 audit)
+    - Documentation and portable handoff system integration
+    - End-to-end recovery workflows on real repo (metadata-only) and disposable project (full lifecycle)
 
-Access 1311k tokens of past work via get_observations([IDs]) or mem-search skill.
+**Learned**: - Stage 13 introduces zero new file-write paths by design; all restores delegate to Stage 10 rollback engine with re-validation
+    - Fail-closed restore semantics require three gates: prior preview of same snapshot, literal --confirm-restore flag, and eligible blocked step
+    - Restoration is NOT gated by execution windows; windows govern command execution, restoration is recovery
+    - Preview is a first-class operation with auditable metadata (cross_project_orchestration_step_rollbacks table), enabling integrity binding
+    - Outcome recording captures "rolled_back" status with full metadata linkage back to Stage 10 execution attempt
+    - Status tracking guides operator through guided sequence without automation (preview → restore → verify → record → retry)
+    - Restoration never re-opens blocked steps; only Stage 12 retry authorization may re-open; audits verify this invariant
+    - Stage 12 guidance become state-aware: if restore exists, suggest retry directly; if not, suggest restore first
+    - Portable handoff system integrates Stage 13 as standard component of cross-agent knowledge transfer
+
+**Completed**: - Implemented 9 Stage 13 modules: target resolution, preview, gated restore, integrity verification, outcome recording, status tracking, reporting, comprehensive audit, and stage13 final audit
+    - Implemented 9 corresponding test modules with full coverage (37 new tests)
+    - Updated documentation: README with full Stage 13 reference guide, AGENTS.md with agent contract, HANDOFF.md regenerated with Stage 13 section
+    - Updated infrastructure: database schema extensions, CLI integration in main.py, agent_handoff.py with Stage 13 report directories, .gitignore patterns
+    - Validation: py_compile clean, hotfix audit 38/38 PASS, full test suite 470 tests OK
+    - Dogfood validation: two-pass end-to-end testing (real repo metadata-only + disposable project recovery), both passes successful
+    - Stage 13 audit: PASS with stage 14 ready: True
+    - All fail-closed semantics verified, recovery workflows validated, zero side effects confirmed
+
+**Next Steps**: Awaiting user direction: Stage 13 implementation is complete with all 28 changes ready for atomic commit. No further work in progress; the tree awaits `git add` and `stage 13` commit message per established convention (verified state committed, not in-flight work).
+
+
+Access 473k tokens of past work via get_observations([IDs]) or mem-search skill.
 </claude-mem-context>

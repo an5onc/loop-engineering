@@ -1,6 +1,6 @@
 # Loop Engineering Agent Handoff
 
-- Generated at: 2026-07-01T19:23:45
+- Generated at: 2026-07-01T20:39:45
 - Branch: `main`
 - Remote: `https://github.com/an5onc/loop-engineering.git`
 
@@ -69,6 +69,9 @@ These are intentionally local-only and ignored:
 - `cross_project_window_retry_reports/`
 - `cross_project_window_retry_audit_reports/`
 - `cross_project_stage12_audit_reports/`
+- `cross_project_restoration_reports/`
+- `cross_project_restoration_audit_reports/`
+- `cross_project_stage13_audit_reports/`
 
 ## Multi-Project Operations (Stage 7)
 
@@ -162,6 +165,21 @@ confirmation, snapshot, and explicit `--confirm-execution`.
 - Advance (now window-gated): `--advance-cross-project-orchestration RUN_ID --step STEP_ID --confirmation CONFIRMATION_ID --snapshot SNAPSHOT_ID --confirm-execution`; retries additionally need an authorization and a fresh confirmation
 - Status/report/audit: `--window-retry-status RUN_ID` -> `--cross-project-window-retry-report RUN_ID` -> `--cross-project-window-retry-audit` -> `--cross-project-stage12-audit`
 - No automatic execution, no allowlist expansion (audited dynamically), no confirmation reuse within a step.
+
+## Operator Rollback Restoration (Stage 13)
+
+Stage 13 restores the Stage 10 snapshot behind a blocked orchestration
+step, through the orchestration layer. All file writes delegate to the
+Stage 10 rollback engine; Stage 13 adds no new write or execution path.
+Each restore requires a fresh preview of the same snapshot since the
+latest restore.
+Restoration never re-opens the step — only a Stage 12 retry does.
+
+- Resolve/preview: `--resolve-orchestration-restoration RUN_ID --step STEP_ID` -> `--preview-orchestration-restoration RUN_ID --step STEP_ID`
+- Restore (preview-first, fail-closed): `--restore-orchestration-step RUN_ID --step STEP_ID --confirm-restore`
+- Verify/record: `--check-restoration-integrity RUN_ID --step STEP_ID` -> `--record-restoration-outcome RUN_ID --step STEP_ID`
+- Status/report/audit: `--restoration-status RUN_ID` -> `--cross-project-restoration-report RUN_ID` -> `--cross-project-restoration-audit` -> `--cross-project-stage13-audit`
+- Restoration is not window-gated by design (windows govern command execution; restore is recovery); it is gated by preview-first + literal `--confirm-restore`.
 
 ## Next Agent Checklist
 
