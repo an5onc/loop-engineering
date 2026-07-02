@@ -2671,6 +2671,187 @@ CREATE TABLE IF NOT EXISTS cross_project_stage11_audit_markdown_reports (
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (stage11_audit_id) REFERENCES cross_project_stage11_audits(id)
 );
+
+-- ===================================================================== --
+-- Stage 12 — Controlled Execution Windows & Limited Retry Policy        --
+-- ===================================================================== --
+
+CREATE TABLE IF NOT EXISTS cross_project_execution_windows (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id INTEGER NOT NULL,
+    label TEXT,
+    status TEXT,
+    starts_at TEXT,
+    ends_at TEXT,
+    opened_at TEXT,
+    opened_by TEXT,
+    closed_at TEXT,
+    closed_by TEXT,
+    notes TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (run_id) REFERENCES cross_project_orchestration_runs(id)
+);
+
+CREATE TABLE IF NOT EXISTS cross_project_execution_window_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    window_id INTEGER NOT NULL,
+    event_type TEXT,
+    detail TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (window_id) REFERENCES cross_project_execution_windows(id)
+);
+
+CREATE TABLE IF NOT EXISTS cross_project_execution_window_checks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id INTEGER NOT NULL,
+    run_step_id INTEGER,
+    window_id INTEGER,
+    status TEXT,
+    reason TEXT,
+    checked_at TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (run_id) REFERENCES cross_project_orchestration_runs(id)
+);
+
+CREATE TABLE IF NOT EXISTS cross_project_orchestration_retry_policies (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id INTEGER NOT NULL,
+    max_retries INTEGER,
+    status TEXT,
+    created_by TEXT,
+    notes TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (run_id) REFERENCES cross_project_orchestration_runs(id)
+);
+
+CREATE TABLE IF NOT EXISTS cross_project_orchestration_retry_requests (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id INTEGER NOT NULL,
+    run_step_id INTEGER NOT NULL,
+    orchestration_step_id INTEGER,
+    policy_id INTEGER,
+    attempt_number INTEGER,
+    status TEXT,
+    requested_by TEXT,
+    reason TEXT,
+    advancement_id INTEGER,
+    updated_at TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (run_id) REFERENCES cross_project_orchestration_runs(id)
+);
+
+CREATE TABLE IF NOT EXISTS cross_project_gated_advancements (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id INTEGER NOT NULL,
+    run_step_id INTEGER NOT NULL,
+    orchestration_step_id INTEGER,
+    window_id INTEGER,
+    window_check_id INTEGER,
+    retry_request_id INTEGER,
+    attempt_number INTEGER,
+    confirmation_id INTEGER,
+    snapshot_id INTEGER,
+    advancement_id INTEGER,
+    attempt_id INTEGER,
+    status TEXT,
+    safety_notes_json TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (run_id) REFERENCES cross_project_orchestration_runs(id)
+);
+
+CREATE TABLE IF NOT EXISTS cross_project_window_retry_statuses (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id INTEGER NOT NULL,
+    run_step_id INTEGER,
+    window_status TEXT,
+    retry_policy_id INTEGER,
+    retries_allowed INTEGER,
+    retries_used INTEGER,
+    next_action TEXT,
+    detail_json TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (run_id) REFERENCES cross_project_orchestration_runs(id)
+);
+
+CREATE TABLE IF NOT EXISTS cross_project_window_retry_reports (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id INTEGER NOT NULL,
+    generated_at TEXT,
+    overall_status TEXT,
+    summary TEXT,
+    next_action TEXT,
+    windows_json TEXT,
+    retries_json TEXT,
+    advancements_json TEXT,
+    safety_notes_json TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (run_id) REFERENCES cross_project_orchestration_runs(id)
+);
+
+CREATE TABLE IF NOT EXISTS cross_project_window_retry_markdown_reports (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    report_id INTEGER NOT NULL,
+    report_path TEXT,
+    report_format TEXT,
+    content_hash TEXT,
+    bytes_written INTEGER,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (report_id) REFERENCES cross_project_window_retry_reports(id)
+);
+
+CREATE TABLE IF NOT EXISTS cross_project_window_retry_audits (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    generated_at TEXT,
+    overall_status TEXT,
+    total_checks INTEGER,
+    passed_checks INTEGER,
+    warning_checks INTEGER,
+    failed_checks INTEGER,
+    blocked_checks INTEGER,
+    checks_json TEXT,
+    recommendations_json TEXT,
+    safety_notes_json TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS cross_project_window_retry_audit_markdown_reports (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    audit_id INTEGER NOT NULL,
+    report_path TEXT,
+    report_format TEXT,
+    content_hash TEXT,
+    bytes_written INTEGER,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (audit_id) REFERENCES cross_project_window_retry_audits(id)
+);
+
+CREATE TABLE IF NOT EXISTS cross_project_stage12_audits (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    generated_at TEXT,
+    overall_status TEXT,
+    total_checks INTEGER,
+    passed_checks INTEGER,
+    warning_checks INTEGER,
+    failed_checks INTEGER,
+    blocked_checks INTEGER,
+    checks_json TEXT,
+    recommendations_json TEXT,
+    stage13_readiness_json TEXT,
+    safety_notes_json TEXT,
+    next_steps_json TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS cross_project_stage12_audit_markdown_reports (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    stage12_audit_id INTEGER NOT NULL,
+    report_path TEXT,
+    report_format TEXT,
+    content_hash TEXT,
+    bytes_written INTEGER,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (stage12_audit_id) REFERENCES cross_project_stage12_audits(id)
+);
 """
 
 
@@ -8028,5 +8209,342 @@ def save_cross_project_stage11_audit_markdown_report(
         "(stage11_audit_id, report_path, report_format, content_hash, bytes_written) "
         "VALUES (?,?,?,?,?)",
         (stage11_audit_id, report_path, report_format, content_hash, bytes_written))
+    conn.commit()
+    return cur.lastrowid
+
+
+# ------------------------------------------------------------------------- #
+# Stage 12 — Controlled Execution Windows & Limited Retry Policy            #
+# ------------------------------------------------------------------------- #
+
+def save_cross_project_execution_window(
+        conn, run_id, label, status, starts_at, ends_at, notes) -> int:
+    cur = conn.execute(
+        "INSERT INTO cross_project_execution_windows (run_id, label, status, "
+        "starts_at, ends_at, notes) VALUES (?,?,?,?,?,?)",
+        (run_id, label, status, starts_at, ends_at, notes))
+    conn.commit()
+    return cur.lastrowid
+
+
+def get_cross_project_execution_window(conn, window_id):
+    return conn.execute(
+        "SELECT * FROM cross_project_execution_windows WHERE id=?",
+        (window_id,)).fetchone()
+
+
+def list_cross_project_execution_windows(conn, run_id=None, limit=50):
+    if run_id is not None:
+        return conn.execute(
+            "SELECT * FROM cross_project_execution_windows "
+            "WHERE run_id=? ORDER BY id DESC LIMIT ?", (run_id, limit)).fetchall()
+    return conn.execute(
+        "SELECT * FROM cross_project_execution_windows ORDER BY id DESC LIMIT ?",
+        (limit,)).fetchall()
+
+
+def update_cross_project_execution_window_status(
+        conn, window_id, status, opened_at=None, opened_by=None, closed_at=None,
+        closed_by=None) -> bool:
+    cur = conn.execute(
+        "UPDATE cross_project_execution_windows SET status=?, "
+        "opened_at=COALESCE(?, opened_at), opened_by=COALESCE(?, opened_by), "
+        "closed_at=COALESCE(?, closed_at), closed_by=COALESCE(?, closed_by) "
+        "WHERE id=?",
+        (status, opened_at, opened_by, closed_at, closed_by, window_id))
+    conn.commit()
+    return cur.rowcount > 0
+
+
+def save_cross_project_execution_window_event(conn, window_id, event_type,
+                                              detail=None) -> int:
+    cur = conn.execute(
+        "INSERT INTO cross_project_execution_window_events "
+        "(window_id, event_type, detail) VALUES (?,?,?)",
+        (window_id, event_type, detail))
+    conn.commit()
+    return cur.lastrowid
+
+
+def list_cross_project_execution_window_events(conn, window_id=None, limit=100):
+    if window_id is not None:
+        return conn.execute(
+            "SELECT * FROM cross_project_execution_window_events "
+            "WHERE window_id=? ORDER BY id LIMIT ?", (window_id, limit)).fetchall()
+    return conn.execute(
+        "SELECT * FROM cross_project_execution_window_events "
+        "ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
+
+
+def save_cross_project_execution_window_check(
+        conn, run_id, run_step_id, window_id, status, reason, checked_at) -> int:
+    cur = conn.execute(
+        "INSERT INTO cross_project_execution_window_checks (run_id, run_step_id, "
+        "window_id, status, reason, checked_at) VALUES (?,?,?,?,?,?)",
+        (run_id, run_step_id, window_id, status, reason, checked_at))
+    conn.commit()
+    return cur.lastrowid
+
+
+def get_cross_project_execution_window_check(conn, check_id):
+    return conn.execute(
+        "SELECT * FROM cross_project_execution_window_checks WHERE id=?",
+        (check_id,)).fetchone()
+
+
+def list_cross_project_execution_window_checks(conn, run_id=None, limit=100):
+    if run_id is not None:
+        return conn.execute(
+            "SELECT * FROM cross_project_execution_window_checks "
+            "WHERE run_id=? ORDER BY id DESC LIMIT ?", (run_id, limit)).fetchall()
+    return conn.execute(
+        "SELECT * FROM cross_project_execution_window_checks "
+        "ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
+
+
+def save_cross_project_orchestration_retry_policy(
+        conn, run_id, max_retries, status, created_by, notes) -> int:
+    cur = conn.execute(
+        "INSERT INTO cross_project_orchestration_retry_policies (run_id, "
+        "max_retries, status, created_by, notes) VALUES (?,?,?,?,?)",
+        (run_id, max_retries, status, created_by, notes))
+    conn.commit()
+    return cur.lastrowid
+
+
+def get_cross_project_orchestration_retry_policy(conn, policy_id):
+    return conn.execute(
+        "SELECT * FROM cross_project_orchestration_retry_policies WHERE id=?",
+        (policy_id,)).fetchone()
+
+
+def get_cross_project_orchestration_retry_policy_for_run(conn, run_id):
+    return conn.execute(
+        "SELECT * FROM cross_project_orchestration_retry_policies "
+        "WHERE run_id=? AND status='active' ORDER BY id DESC LIMIT 1",
+        (run_id,)).fetchone()
+
+
+def list_cross_project_orchestration_retry_policies(conn, limit=50):
+    return conn.execute(
+        "SELECT * FROM cross_project_orchestration_retry_policies "
+        "ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
+
+
+def save_cross_project_orchestration_retry_request(
+        conn, run_id, run_step_id, orchestration_step_id, policy_id,
+        attempt_number, status, requested_by, reason) -> int:
+    cur = conn.execute(
+        "INSERT INTO cross_project_orchestration_retry_requests (run_id, "
+        "run_step_id, orchestration_step_id, policy_id, attempt_number, status, "
+        "requested_by, reason, updated_at) VALUES (?,?,?,?,?,?,?,?,?)",
+        (run_id, run_step_id, orchestration_step_id, policy_id, attempt_number,
+         status, requested_by, reason, _gov_now()))
+    conn.commit()
+    return cur.lastrowid
+
+
+def get_cross_project_orchestration_retry_request(conn, request_id):
+    return conn.execute(
+        "SELECT * FROM cross_project_orchestration_retry_requests WHERE id=?",
+        (request_id,)).fetchone()
+
+
+def list_cross_project_orchestration_retry_requests(conn, run_id=None,
+                                                    run_step_id=None, limit=100):
+    if run_step_id is not None:
+        return conn.execute(
+            "SELECT * FROM cross_project_orchestration_retry_requests "
+            "WHERE run_step_id=? ORDER BY id DESC LIMIT ?",
+            (run_step_id, limit)).fetchall()
+    if run_id is not None:
+        return conn.execute(
+            "SELECT * FROM cross_project_orchestration_retry_requests "
+            "WHERE run_id=? ORDER BY id DESC LIMIT ?", (run_id, limit)).fetchall()
+    return conn.execute(
+        "SELECT * FROM cross_project_orchestration_retry_requests "
+        "ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
+
+
+def update_cross_project_orchestration_retry_request(
+        conn, request_id, status, advancement_id=None) -> bool:
+    cur = conn.execute(
+        "UPDATE cross_project_orchestration_retry_requests SET status=?, "
+        "advancement_id=COALESCE(?, advancement_id), updated_at=? WHERE id=?",
+        (status, advancement_id, _gov_now(), request_id))
+    conn.commit()
+    return cur.rowcount > 0
+
+
+def save_cross_project_gated_advancement(
+        conn, run_id, run_step_id, orchestration_step_id, window_id,
+        window_check_id, retry_request_id, attempt_number, confirmation_id,
+        snapshot_id, advancement_id, attempt_id, status,
+        safety_notes_json) -> int:
+    cur = conn.execute(
+        "INSERT INTO cross_project_gated_advancements (run_id, run_step_id, "
+        "orchestration_step_id, window_id, window_check_id, retry_request_id, "
+        "attempt_number, confirmation_id, snapshot_id, advancement_id, "
+        "attempt_id, status, safety_notes_json) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        (run_id, run_step_id, orchestration_step_id, window_id, window_check_id,
+         retry_request_id, attempt_number, confirmation_id, snapshot_id,
+         advancement_id, attempt_id, status, safety_notes_json))
+    conn.commit()
+    return cur.lastrowid
+
+
+def get_cross_project_gated_advancement(conn, gated_advancement_id):
+    return conn.execute(
+        "SELECT * FROM cross_project_gated_advancements WHERE id=?",
+        (gated_advancement_id,)).fetchone()
+
+
+def list_cross_project_gated_advancements(conn, run_id=None, run_step_id=None,
+                                          limit=100):
+    if run_step_id is not None:
+        return conn.execute(
+            "SELECT * FROM cross_project_gated_advancements "
+            "WHERE run_step_id=? ORDER BY id DESC LIMIT ?",
+            (run_step_id, limit)).fetchall()
+    if run_id is not None:
+        return conn.execute(
+            "SELECT * FROM cross_project_gated_advancements "
+            "WHERE run_id=? ORDER BY id DESC LIMIT ?", (run_id, limit)).fetchall()
+    return conn.execute(
+        "SELECT * FROM cross_project_gated_advancements ORDER BY id DESC LIMIT ?",
+        (limit,)).fetchall()
+
+
+def save_cross_project_window_retry_status(
+        conn, run_id, run_step_id, window_status, retry_policy_id,
+        retries_allowed, retries_used, next_action, detail_json) -> int:
+    cur = conn.execute(
+        "INSERT INTO cross_project_window_retry_statuses (run_id, run_step_id, "
+        "window_status, retry_policy_id, retries_allowed, retries_used, "
+        "next_action, detail_json) VALUES (?,?,?,?,?,?,?,?)",
+        (run_id, run_step_id, window_status, retry_policy_id, retries_allowed,
+         retries_used, next_action, detail_json))
+    conn.commit()
+    return cur.lastrowid
+
+
+def get_cross_project_window_retry_status(conn, status_id):
+    return conn.execute(
+        "SELECT * FROM cross_project_window_retry_statuses WHERE id=?",
+        (status_id,)).fetchone()
+
+
+def list_cross_project_window_retry_statuses(conn, run_id=None, limit=50):
+    if run_id is not None:
+        return conn.execute(
+            "SELECT * FROM cross_project_window_retry_statuses "
+            "WHERE run_id=? ORDER BY id DESC LIMIT ?", (run_id, limit)).fetchall()
+    return conn.execute(
+        "SELECT * FROM cross_project_window_retry_statuses "
+        "ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
+
+
+def save_cross_project_window_retry_report(
+        conn, run_id, generated_at, overall_status, summary, next_action,
+        windows_json, retries_json, advancements_json, safety_notes_json) -> int:
+    cur = conn.execute(
+        "INSERT INTO cross_project_window_retry_reports (run_id, generated_at, "
+        "overall_status, summary, next_action, windows_json, retries_json, "
+        "advancements_json, safety_notes_json) VALUES (?,?,?,?,?,?,?,?,?)",
+        (run_id, generated_at, overall_status, summary, next_action, windows_json,
+         retries_json, advancements_json, safety_notes_json))
+    conn.commit()
+    return cur.lastrowid
+
+
+def get_cross_project_window_retry_report(conn, report_id):
+    return conn.execute(
+        "SELECT * FROM cross_project_window_retry_reports WHERE id=?",
+        (report_id,)).fetchone()
+
+
+def list_cross_project_window_retry_reports(conn, limit=50):
+    return conn.execute(
+        "SELECT * FROM cross_project_window_retry_reports ORDER BY id DESC LIMIT ?",
+        (limit,)).fetchall()
+
+
+def save_cross_project_window_retry_markdown_report(
+        conn, report_id, report_path, report_format, content_hash,
+        bytes_written) -> int:
+    cur = conn.execute(
+        "INSERT INTO cross_project_window_retry_markdown_reports "
+        "(report_id, report_path, report_format, content_hash, bytes_written) "
+        "VALUES (?,?,?,?,?)",
+        (report_id, report_path, report_format, content_hash, bytes_written))
+    conn.commit()
+    return cur.lastrowid
+
+
+def save_cross_project_window_retry_audit(
+        conn, generated_at, overall_status, total_checks, passed_checks,
+        warning_checks, failed_checks, blocked_checks, checks_json,
+        recommendations_json, safety_notes_json) -> int:
+    cur = conn.execute(
+        "INSERT INTO cross_project_window_retry_audits (generated_at, "
+        "overall_status, total_checks, passed_checks, warning_checks, "
+        "failed_checks, blocked_checks, checks_json, recommendations_json, "
+        "safety_notes_json) VALUES (?,?,?,?,?,?,?,?,?,?)",
+        (generated_at, overall_status, total_checks, passed_checks, warning_checks,
+         failed_checks, blocked_checks, checks_json, recommendations_json,
+         safety_notes_json))
+    conn.commit()
+    return cur.lastrowid
+
+
+def list_cross_project_window_retry_audits(conn, limit=20):
+    return conn.execute(
+        "SELECT * FROM cross_project_window_retry_audits ORDER BY id DESC LIMIT ?",
+        (limit,)).fetchall()
+
+
+def save_cross_project_window_retry_audit_markdown_report(
+        conn, audit_id, report_path, report_format, content_hash,
+        bytes_written) -> int:
+    cur = conn.execute(
+        "INSERT INTO cross_project_window_retry_audit_markdown_reports "
+        "(audit_id, report_path, report_format, content_hash, bytes_written) "
+        "VALUES (?,?,?,?,?)",
+        (audit_id, report_path, report_format, content_hash, bytes_written))
+    conn.commit()
+    return cur.lastrowid
+
+
+def save_cross_project_stage12_audit(
+        conn, generated_at, overall_status, total_checks, passed_checks,
+        warning_checks, failed_checks, blocked_checks, checks_json,
+        recommendations_json, stage13_readiness_json, safety_notes_json,
+        next_steps_json) -> int:
+    cur = conn.execute(
+        "INSERT INTO cross_project_stage12_audits (generated_at, overall_status, "
+        "total_checks, passed_checks, warning_checks, failed_checks, "
+        "blocked_checks, checks_json, recommendations_json, stage13_readiness_json, "
+        "safety_notes_json, next_steps_json) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+        (generated_at, overall_status, total_checks, passed_checks, warning_checks,
+         failed_checks, blocked_checks, checks_json, recommendations_json,
+         stage13_readiness_json, safety_notes_json, next_steps_json))
+    conn.commit()
+    return cur.lastrowid
+
+
+def list_cross_project_stage12_audits(conn, limit=20):
+    return conn.execute(
+        "SELECT * FROM cross_project_stage12_audits ORDER BY id DESC LIMIT ?",
+        (limit,)).fetchall()
+
+
+def save_cross_project_stage12_audit_markdown_report(
+        conn, stage12_audit_id, report_path, report_format, content_hash,
+        bytes_written) -> int:
+    cur = conn.execute(
+        "INSERT INTO cross_project_stage12_audit_markdown_reports "
+        "(stage12_audit_id, report_path, report_format, content_hash, bytes_written) "
+        "VALUES (?,?,?,?,?)",
+        (stage12_audit_id, report_path, report_format, content_hash, bytes_written))
     conn.commit()
     return cur.lastrowid

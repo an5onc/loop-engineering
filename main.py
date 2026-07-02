@@ -107,6 +107,16 @@ import cross_project_orchestration_rollback
 import cross_project_orchestration_reports
 import cross_project_orchestration_audit
 import cross_project_stage11_audit
+import cross_project_execution_windows
+import cross_project_execution_window_controls
+import cross_project_execution_window_checks
+import cross_project_orchestration_retry_policies
+import cross_project_orchestration_retry_requests
+import cross_project_gated_advancement
+import cross_project_window_retry_status
+import cross_project_window_retry_reports
+import cross_project_window_retry_audit
+import cross_project_stage12_audit
 from loop_engine import LoopEngine
 
 USAGE = """Loop Engineering — orchestrates local Ollama models in a safe
@@ -10118,6 +10128,21 @@ def _latest_orchestration_run_id(conn):
     return rows[0]["id"] if rows else None
 
 
+def _latest_execution_window_id(conn):
+    rows = database.list_cross_project_execution_windows(conn, limit=1)
+    return rows[0]["id"] if rows else None
+
+
+def _latest_retry_policy_id(conn):
+    rows = database.list_cross_project_orchestration_retry_policies(conn, limit=1)
+    return rows[0]["id"] if rows else None
+
+
+def _latest_retry_request_id(conn):
+    rows = database.list_cross_project_orchestration_retry_requests(conn, limit=1)
+    return rows[0]["id"] if rows else None
+
+
 def _print_execution_intent(intent) -> None:
     print(f"id         : {intent.id}")
     print(f"source     : {intent.source_type}:{intent.source_id}")
@@ -11279,17 +11304,21 @@ def _cmd_advance_cross_project_orchestration(args) -> int:
             "execution confirmation")
         snapshot_id = _parse_id_or_latest(
             conn, snapshot_arg, _latest_execution_snapshot_id, "execution snapshot")
-        advancement = cross_project_orchestration_runtime.CrossProjectOrchestrationRuntime(
+        gated = cross_project_gated_advancement.CrossProjectGatedAdvancementEngine(
             conn).advance(run_id, int(step_arg), confirmation_id, snapshot_id,
                           confirm_execution=("--confirm-execution" in args))
     except (TypeError, ValueError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 1
     _rule("CROSS-PROJECT ORCHESTRATION ADVANCEMENT")
-    print(f"advancement id: {advancement.id}")
-    print(f"run id        : {advancement.run_id}")
-    print(f"attempt id    : {advancement.attempt_id}")
-    print(f"status        : {advancement.status}")
+    print(f"advancement id: {gated.advancement_id}")
+    print(f"gated id      : {gated.id}")
+    print(f"run id        : {gated.run_id}")
+    print(f"attempt id    : {gated.attempt_id}")
+    print(f"attempt number: {gated.attempt_number}")
+    print(f"window check  : window={gated.window_id} check={gated.window_check_id}")
+    print(f"retry request : {gated.retry_request_id if gated.retry_request_id else '-'}")
+    print(f"status        : {gated.status}")
     return 0
 
 
@@ -11394,6 +11423,321 @@ def _cmd_cross_project_stage11_audit(args) -> int:
     print(f"audit id      : {audit_id}")
     print(f"overall status: {report.overall_status}")
     print(f"stage 12 ready: {report.stage12_readiness.get('ready')}")
+    if markdown_path:
+        print(f"markdown      : {markdown_path}")
+    for check in report.checks:
+        print(f"- {check.status}: {check.name} — {check.message}")
+    return 0
+
+
+def _print_execution_window(window) -> None:
+    print(f"window id  : {window.id}")
+    print(f"run id     : {window.run_id}")
+    print(f"label      : {window.label}")
+    print(f"status     : {window.status}")
+    if window.starts_at or window.ends_at:
+        print(f"bounds     : {window.starts_at or '-'} .. {window.ends_at or '-'}")
+    if window.opened_at:
+        print(f"opened     : {window.opened_at} by {window.opened_by}")
+    if window.closed_at:
+        print(f"closed     : {window.closed_at} by {window.closed_by}")
+
+
+def _cmd_define_execution_window(args) -> int:
+    if not args:
+        print("ERROR: --define-execution-window needs RUN_ID|latest --label LABEL",
+              file=sys.stderr)
+        return 1
+    label = _flag_val(args, "--label")
+    if label is None:
+        print("ERROR: execution window requires --label LABEL", file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    try:
+        run_id = _parse_id_or_latest(
+            conn, args[0], _latest_orchestration_run_id, "orchestration run")
+        window = cross_project_execution_windows.CrossProjectExecutionWindowManager(
+            conn).define_window(run_id, label,
+                                starts_at=_flag_val(args, "--starts"),
+                                ends_at=_flag_val(args, "--ends"),
+                                notes=_flag_val(args, "--notes"))
+    except (TypeError, ValueError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    _rule("CROSS-PROJECT EXECUTION WINDOW")
+    _print_execution_window(window)
+    return 0
+
+
+def _cmd_execution_windows(args) -> int:
+    conn = database.init_db()
+    try:
+        run_id = int(args[0]) if args and not args[0].startswith("--") else None
+    except ValueError:
+        print(f"ERROR: invalid run id {args[0]}", file=sys.stderr)
+        return 1
+    windows = cross_project_execution_windows.CrossProjectExecutionWindowManager(
+        conn).list_windows(run_id=run_id)
+    _rule(f"CROSS-PROJECT EXECUTION WINDOWS ({len(windows)})")
+    if not windows:
+        print("(none)")
+    for window in windows:
+        print(f"#{window.id} run={window.run_id} status={window.status} "
+              f"label={window.label}")
+    return 0
+
+
+def _cmd_execution_window(args) -> int:
+    if not args:
+        print("ERROR: --cross-project-execution-window needs WINDOW_ID|latest",
+              file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    try:
+        window_id = _parse_id_or_latest(
+            conn, args[0], _latest_execution_window_id, "execution window")
+    except (TypeError, ValueError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    window = cross_project_execution_windows.CrossProjectExecutionWindowManager(
+        conn).get_window(window_id)
+    if window is None:
+        print(f"ERROR: no execution window {args[0]}", file=sys.stderr)
+        return 1
+    _rule("CROSS-PROJECT EXECUTION WINDOW")
+    _print_execution_window(window)
+    return 0
+
+
+def _cmd_open_execution_window(args) -> int:
+    if not args:
+        print("ERROR: --open-execution-window needs WINDOW_ID|latest",
+              file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    try:
+        window_id = _parse_id_or_latest(
+            conn, args[0], _latest_execution_window_id, "execution window")
+        window = cross_project_execution_window_controls.CrossProjectExecutionWindowControlGate(
+            conn).open_window(window_id, opened_by=_flag_val(args, "--by"))
+    except (TypeError, ValueError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    _rule("CROSS-PROJECT EXECUTION WINDOW OPENED")
+    _print_execution_window(window)
+    return 0
+
+
+def _cmd_close_execution_window(args) -> int:
+    if not args:
+        print("ERROR: --close-execution-window needs WINDOW_ID|latest",
+              file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    try:
+        window_id = _parse_id_or_latest(
+            conn, args[0], _latest_execution_window_id, "execution window")
+        window = cross_project_execution_window_controls.CrossProjectExecutionWindowControlGate(
+            conn).close_window(window_id, closed_by=_flag_val(args, "--by"))
+    except (TypeError, ValueError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    _rule("CROSS-PROJECT EXECUTION WINDOW CLOSED")
+    _print_execution_window(window)
+    return 0
+
+
+def _cmd_check_execution_window(args) -> int:
+    if not args:
+        print("ERROR: --check-execution-window needs RUN_ID|latest",
+              file=sys.stderr)
+        return 1
+    step_arg = _flag_val(args, "--step")
+    conn = database.init_db()
+    try:
+        run_id = _parse_id_or_latest(
+            conn, args[0], _latest_orchestration_run_id, "orchestration run")
+        check = cross_project_execution_window_checks.CrossProjectExecutionWindowChecker(
+            conn).check(run_id, run_step_id=int(step_arg) if step_arg else None)
+    except (TypeError, ValueError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    _rule("CROSS-PROJECT EXECUTION WINDOW CHECK")
+    print(f"check id   : {check.id}")
+    print(f"run id     : {check.run_id}")
+    print(f"window id  : {check.window_id if check.window_id else '-'}")
+    print(f"status     : {check.status}")
+    print(f"reason     : {check.reason}")
+    return 0
+
+
+def _cmd_set_orchestration_retry_policy(args) -> int:
+    if not args:
+        print("ERROR: --set-orchestration-retry-policy needs RUN_ID|latest "
+              "--max-retries N", file=sys.stderr)
+        return 1
+    max_retries = _flag_val(args, "--max-retries")
+    if max_retries is None:
+        print("ERROR: retry policy requires --max-retries N", file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    try:
+        run_id = _parse_id_or_latest(
+            conn, args[0], _latest_orchestration_run_id, "orchestration run")
+        policy = cross_project_orchestration_retry_policies.CrossProjectOrchestrationRetryPolicyManager(
+            conn).set_policy(run_id, max_retries,
+                             created_by=_flag_val(args, "--by"),
+                             notes=_flag_val(args, "--notes"))
+    except (TypeError, ValueError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    _rule("ORCHESTRATION RETRY POLICY")
+    print(f"policy id  : {policy.id}")
+    print(f"run id     : {policy.run_id}")
+    print(f"max retries: {policy.max_retries}")
+    print(f"status     : {policy.status}")
+    return 0
+
+
+def _cmd_orchestration_retry_policies(args) -> int:
+    conn = database.init_db()
+    policies = cross_project_orchestration_retry_policies.CrossProjectOrchestrationRetryPolicyManager(
+        conn).list_policies()
+    _rule(f"ORCHESTRATION RETRY POLICIES ({len(policies)})")
+    if not policies:
+        print("(none)")
+    for policy in policies:
+        print(f"#{policy.id} run={policy.run_id} max_retries={policy.max_retries} "
+              f"status={policy.status}")
+    return 0
+
+
+def _cmd_request_orchestration_retry(args) -> int:
+    if not args:
+        print("ERROR: --request-orchestration-retry needs RUN_ID|latest --step STEP_ID",
+              file=sys.stderr)
+        return 1
+    step_arg = _flag_val(args, "--step")
+    if step_arg is None:
+        print("ERROR: retry request requires --step STEP_ID", file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    try:
+        run_id = _parse_id_or_latest(
+            conn, args[0], _latest_orchestration_run_id, "orchestration run")
+        request = cross_project_orchestration_retry_requests.CrossProjectOrchestrationRetryGate(
+            conn).request_retry(run_id, int(step_arg),
+                                requested_by=_flag_val(args, "--by"),
+                                reason=_flag_val(args, "--reason"))
+    except (TypeError, ValueError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    _rule("ORCHESTRATION RETRY AUTHORIZED")
+    print(f"request id    : {request.id}")
+    print(f"run id        : {request.run_id}")
+    print(f"run step id   : {request.run_step_id}")
+    print(f"attempt number: {request.attempt_number}")
+    print(f"status        : {request.status}")
+    print("next          : advance with --confirm-execution using a fresh "
+          "Stage 10 confirmation")
+    return 0
+
+
+def _cmd_orchestration_retry_requests(args) -> int:
+    conn = database.init_db()
+    try:
+        run_id = int(args[0]) if args and not args[0].startswith("--") else None
+    except ValueError:
+        print(f"ERROR: invalid run id {args[0]}", file=sys.stderr)
+        return 1
+    requests = cross_project_orchestration_retry_requests.CrossProjectOrchestrationRetryGate(
+        conn).list_requests(run_id=run_id)
+    _rule(f"ORCHESTRATION RETRY REQUESTS ({len(requests)})")
+    if not requests:
+        print("(none)")
+    for request in requests:
+        print(f"#{request.id} run={request.run_id} step={request.run_step_id} "
+              f"attempt={request.attempt_number} status={request.status}")
+    return 0
+
+
+def _cmd_window_retry_status(args) -> int:
+    if not args:
+        print("ERROR: --window-retry-status needs RUN_ID|latest", file=sys.stderr)
+        return 1
+    step_arg = _flag_val(args, "--step")
+    conn = database.init_db()
+    try:
+        run_id = _parse_id_or_latest(
+            conn, args[0], _latest_orchestration_run_id, "orchestration run")
+        status = cross_project_window_retry_status.CrossProjectWindowRetryStatusResolver(
+            conn).resolve(run_id, step_id=int(step_arg) if step_arg else None)
+    except (TypeError, ValueError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    _rule("CROSS-PROJECT WINDOW & RETRY STATUS")
+    print(f"status id     : {status.id}")
+    print(f"run id        : {status.run_id}")
+    print(f"window status : {status.window_status}")
+    print(f"retry budget  : used={status.retries_used} allowed={status.retries_allowed}")
+    print(f"next action   : {status.next_action}")
+    return 0
+
+
+def _cmd_window_retry_report(args) -> int:
+    if not args:
+        print("ERROR: --cross-project-window-retry-report needs RUN_ID|latest",
+              file=sys.stderr)
+        return 1
+    conn = database.init_db()
+    try:
+        run_id = _parse_id_or_latest(
+            conn, args[0], _latest_orchestration_run_id, "orchestration run")
+        engine = cross_project_window_retry_reports.CrossProjectWindowRetryReportBuilder(
+            conn)
+        report = engine.build_report(run_id)
+        report_id = engine.save_report(report)
+        markdown_path = engine.save_markdown_report(report_id, report) if "--save-report" in args else None
+    except (TypeError, ValueError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    _rule("CROSS-PROJECT WINDOW & RETRY REPORT")
+    print(f"report id   : {report_id}")
+    print(f"run id      : {report.run_id}")
+    print(f"status      : {report.overall_status}")
+    print(f"summary     : {report.summary}")
+    print(f"next action : {report.next_action}")
+    if markdown_path:
+        print(f"markdown    : {markdown_path}")
+    return 0
+
+
+def _cmd_window_retry_audit(args) -> int:
+    conn = database.init_db()
+    engine = cross_project_window_retry_audit.CrossProjectWindowRetryAuditEngine(conn)
+    report = engine.build_report()
+    audit_id = engine.save_audit(report)
+    markdown_path = engine.save_markdown_report(audit_id, report) if "--save-report" in args else None
+    _rule("CROSS-PROJECT WINDOW & RETRY AUDIT")
+    print(f"audit id      : {audit_id}")
+    print(f"overall status: {report.overall_status}")
+    if markdown_path:
+        print(f"markdown      : {markdown_path}")
+    for check in report.checks:
+        print(f"- {check.status}: {check.name} — {check.message}")
+    return 0
+
+
+def _cmd_cross_project_stage12_audit(args) -> int:
+    conn = database.init_db()
+    engine = cross_project_stage12_audit.CrossProjectStage12AuditEngine(conn)
+    report = engine.build_report()
+    audit_id = engine.save_audit(report)
+    markdown_path = engine.save_markdown_report(audit_id, report) if "--save-report" in args else None
+    _rule("STAGE 12 FINAL AUDIT — EXECUTION WINDOWS & RETRY POLICY")
+    print(f"audit id      : {audit_id}")
+    print(f"overall status: {report.overall_status}")
+    print(f"stage 13 ready: {report.stage13_readiness.get('ready')}")
     if markdown_path:
         print(f"markdown      : {markdown_path}")
     for check in report.checks:
@@ -12002,6 +12346,35 @@ def main() -> int:
         return _cmd_orchestration_audit(args[1:])
     if args and args[0] == "--cross-project-stage11-audit":
         return _cmd_cross_project_stage11_audit(args[1:])
+    # --- Stage 12: Execution Windows & Retry Policy ----------------------
+    if args and args[0] == "--define-execution-window":
+        return _cmd_define_execution_window(args[1:])
+    if args and args[0] == "--cross-project-execution-windows":
+        return _cmd_execution_windows(args[1:])
+    if args and args[0] == "--cross-project-execution-window":
+        return _cmd_execution_window(args[1:])
+    if args and args[0] == "--open-execution-window":
+        return _cmd_open_execution_window(args[1:])
+    if args and args[0] == "--close-execution-window":
+        return _cmd_close_execution_window(args[1:])
+    if args and args[0] == "--check-execution-window":
+        return _cmd_check_execution_window(args[1:])
+    if args and args[0] == "--set-orchestration-retry-policy":
+        return _cmd_set_orchestration_retry_policy(args[1:])
+    if args and args[0] == "--orchestration-retry-policies":
+        return _cmd_orchestration_retry_policies(args[1:])
+    if args and args[0] == "--request-orchestration-retry":
+        return _cmd_request_orchestration_retry(args[1:])
+    if args and args[0] == "--orchestration-retry-requests":
+        return _cmd_orchestration_retry_requests(args[1:])
+    if args and args[0] == "--window-retry-status":
+        return _cmd_window_retry_status(args[1:])
+    if args and args[0] == "--cross-project-window-retry-report":
+        return _cmd_window_retry_report(args[1:])
+    if args and args[0] == "--cross-project-window-retry-audit":
+        return _cmd_window_retry_audit(args[1:])
+    if args and args[0] == "--cross-project-stage12-audit":
+        return _cmd_cross_project_stage12_audit(args[1:])
 
     (commit, commit_message, loop_name, overrides, min_conf, workspace_name,
      require_approval, auto_approve_low_risk, approval_mode,

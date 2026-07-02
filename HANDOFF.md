@@ -1,6 +1,6 @@
 # Loop Engineering Agent Handoff
 
-- Generated at: 2026-07-01T15:34:37
+- Generated at: 2026-07-01T19:23:45
 - Branch: `main`
 - Remote: `https://github.com/an5onc/loop-engineering.git`
 
@@ -66,6 +66,9 @@ These are intentionally local-only and ignored:
 - `cross_project_orchestration_reports/`
 - `cross_project_orchestration_audit_reports/`
 - `cross_project_stage11_audit_reports/`
+- `cross_project_window_retry_reports/`
+- `cross_project_window_retry_audit_reports/`
+- `cross_project_stage12_audit_reports/`
 
 ## Multi-Project Operations (Stage 7)
 
@@ -143,6 +146,22 @@ rollback status, reports, and audits.
 - Advance one step: `--advance-cross-project-orchestration RUN_ID --step STEP_ID --confirmation CONFIRMATION_ID --snapshot SNAPSHOT_ID --confirm-execution`
 - Verify/report/audit: `--verify-cross-project-orchestration-step RUN_ID --step STEP_ID` -> `--cross-project-orchestration-report RUN_ID` -> `--cross-project-stage11-audit`
 - No parallel execution, automatic retry, automatic rollback, Git mutation, external job, hidden model call, or broader command allowlist.
+
+## Execution Windows & Retry Policy (Stage 12)
+
+Stage 12 gates orchestration advancement behind operator-defined execution
+windows and authorizes bounded retries as pure metadata. The gated
+advancement engine delegates to the Stage 11 runtime, which delegates to
+Stage 10; every attempt (first or retry) needs its own approved Stage 10
+confirmation, snapshot, and explicit `--confirm-execution`.
+
+- Windows: `--define-execution-window RUN_ID --label LABEL [--starts TS] [--ends TS]` -> `--open-execution-window WINDOW_ID` / `--close-execution-window WINDOW_ID` (closed windows never reopen)
+- Check: `--check-execution-window RUN_ID [--step STEP_ID]`
+- Retry policy: `--set-orchestration-retry-policy RUN_ID --max-retries N` (write-once per run, max 3)
+- Retry authorization: `--request-orchestration-retry RUN_ID --step STEP_ID` (blocked steps only; re-opens the step, executes nothing)
+- Advance (now window-gated): `--advance-cross-project-orchestration RUN_ID --step STEP_ID --confirmation CONFIRMATION_ID --snapshot SNAPSHOT_ID --confirm-execution`; retries additionally need an authorization and a fresh confirmation
+- Status/report/audit: `--window-retry-status RUN_ID` -> `--cross-project-window-retry-report RUN_ID` -> `--cross-project-window-retry-audit` -> `--cross-project-stage12-audit`
+- No automatic execution, no allowlist expansion (audited dynamically), no confirmation reuse within a step.
 
 ## Next Agent Checklist
 

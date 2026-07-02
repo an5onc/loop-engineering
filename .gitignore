@@ -49,3 +49,6 @@ cross_project_stage10_audit_reports/
 cross_project_orchestration_reports/
 cross_project_orchestration_audit_reports/
 cross_project_stage11_audit_reports/
+cross_project_window_retry_reports/
+cross_project_window_retry_audit_reports/
+cross_project_stage12_audit_reports/

@@ -1,3 +1,81 @@
+# Loop Engineering — Stage 12
+
+## What's new in 12 — Controlled Execution Windows and Limited Retry Policy
+
+Stage 12 layers two operator controls onto the Stage 11 orchestration engine
+without touching the execution path: named execution windows that must be
+explicitly opened before any step can advance, and a bounded retry policy that
+authorizes — but never performs — a retry of a blocked step.
+
+Execution still belongs to Stage 10 and sequencing to Stage 11: the Stage 12
+gated advancement engine delegates to the Stage 11 runtime, which delegates to
+the Stage 10 runtime. Every attempt (first or retry) requires its own approved
+Stage 10 confirmation, rollback snapshot, allowlisted command, confined cwd,
+and explicit `--confirm-execution`. Retry authorizations are pure metadata;
+nothing ever runs automatically. The command allowlist is unchanged, and the
+Stage 12 final audit verifies that dynamically.
+
+Note: `--advance-cross-project-orchestration` is now routed through the Stage
+12 gate, so every advancement additionally requires an open execution window.
+This is a deliberate fail-closed tightening.
+
+### 12.0-12.2 Execution windows: define, open/close, check
+
+Windows belong to an orchestration run. A window starts `defined`, must be
+explicitly opened by an operator, and can never reopen once closed (define a
+new one instead). Optional `--starts`/`--ends` ISO bounds narrow an open
+window; a window is never active without an operator open action.
+
+```bash
+python3 main.py --define-execution-window RUN_ID --label LABEL [--starts TS] [--ends TS] [--notes TEXT]
+python3 main.py --cross-project-execution-windows [RUN_ID]
+python3 main.py --cross-project-execution-window WINDOW_ID
+python3 main.py --open-execution-window WINDOW_ID [--by NAME]
+python3 main.py --close-execution-window WINDOW_ID [--by NAME]
+python3 main.py --check-execution-window RUN_ID [--step STEP_ID]
+```
+
+### 12.3-12.5 Retry policy, retry authorization, gated advancement
+
+A retry policy is write-once per run and capped at 3 retries. A retry request
+is only granted for a blocked step with budget remaining; it re-opens the step
+and records the authorization. The gated advancement then requires an open
+window, the authorization (for attempts beyond the first), and a fresh Stage
+10 confirmation — a confirmation id can never be reused for the same step.
+
+```bash
+python3 main.py --set-orchestration-retry-policy RUN_ID --max-retries N [--by NAME] [--notes TEXT]
+python3 main.py --orchestration-retry-policies
+python3 main.py --request-orchestration-retry RUN_ID --step STEP_ID [--reason TEXT] [--by NAME]
+python3 main.py --orchestration-retry-requests [RUN_ID]
+python3 main.py --advance-cross-project-orchestration RUN_ID --step STEP_ID --confirmation CONFIRMATION_ID --snapshot SNAPSHOT_ID --confirm-execution
+```
+
+### 12.6-12.9 Status, reports, and audits
+
+```bash
+python3 main.py --window-retry-status RUN_ID [--step STEP_ID]
+python3 main.py --cross-project-window-retry-report RUN_ID --save-report
+python3 main.py --cross-project-window-retry-audit --save-report
+python3 main.py --cross-project-stage12-audit --save-report
+```
+
+### Stage 12 tests
+
+```bash
+python3 -m unittest \
+  test_cross_project_execution_windows.py \
+  test_cross_project_execution_window_controls.py \
+  test_cross_project_execution_window_checks.py \
+  test_cross_project_orchestration_retry_policies.py \
+  test_cross_project_orchestration_retry_requests.py \
+  test_cross_project_gated_advancement.py \
+  test_cross_project_window_retry_status.py \
+  test_cross_project_window_retry_reports.py \
+  test_cross_project_window_retry_audit.py \
+  test_cross_project_stage12_audit.py
+```
+
 # Loop Engineering — Stage 11
 
 ## What's new in 11 — Controlled Multi-Step Execution Orchestration

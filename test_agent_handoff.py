@@ -21,6 +21,9 @@ class AgentHandoffTests(unittest.TestCase):
             self.assertIn("--plan-cross-project-work", content)
             self.assertIn("Governance & Fleet Reporting", content)
             self.assertIn("--evaluate-governance-policies", content)
+            self.assertIn("Execution Windows & Retry Policy (Stage 12)", content)
+            self.assertIn("--define-execution-window", content)
+            self.assertIn("--request-orchestration-retry", content)
 
     def test_check_requires_runtime_artifacts_ignored(self):
         import agent_handoff

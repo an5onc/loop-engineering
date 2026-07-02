@@ -188,6 +188,39 @@ new executor or broader permissions.
   `cross_project_orchestration_audit_reports/`,
   `cross_project_stage11_audit_reports/`.
 
+## Execution Windows & Retry Policy (Stage 12)
+
+Stage 12 adds operator-defined execution windows and a bounded retry policy on
+top of Stage 11 orchestration. It introduces no new execution path: the gated
+advancement engine delegates to the Stage 11 runtime, which delegates to
+Stage 10.
+
+- Advancement now requires an open operator execution window. Windows start
+  `defined`, must be explicitly opened, and never reopen after closing;
+  optional ISO time bounds narrow an open window. A missing or non-open
+  window fails closed.
+- Retries are metadata authorizations only. A retry policy is write-once per
+  run with `--max-retries` between 1 and 3. A retry request is granted only
+  for a blocked step with budget remaining; it re-opens the step and executes
+  nothing.
+- Every attempt — first or retry — requires its own approved Stage 10
+  confirmation, snapshot, and literal `--confirm-execution`. A confirmation id
+  can never be reused for the same run step; the audits verify this.
+- The Stage 12 final audit also verifies dynamically that the command
+  allowlist is unchanged.
+- Typical flow:
+  `--define-execution-window RUN_ID --label LABEL`
+  → `--open-execution-window WINDOW_ID`
+  → `--advance-cross-project-orchestration ... --confirm-execution`
+  → on failure: `--set-orchestration-retry-policy RUN_ID --max-retries N`
+  → `--request-orchestration-retry RUN_ID --step STEP_ID`
+  → fresh confirmation + snapshot → advance again
+  → `--cross-project-window-retry-audit` / `--cross-project-stage12-audit`.
+- Stage 12 generated reports are ignored runtime artifacts:
+  `cross_project_window_retry_reports/`,
+  `cross_project_window_retry_audit_reports/`,
+  `cross_project_stage12_audit_reports/`.
+
 
 <claude-mem-context>
 # Memory Context
