@@ -292,36 +292,21 @@ file-write path.
 <claude-mem-context>
 # Memory Context
 
-# [loop-engineering] recent context, 2026-07-01 9:24pm MDT
+# [loop-engineering] recent context, 2026-07-01 9:37pm MDT
 
 Legend: 🎯session 🔴bugfix 🟣feature 🔄refactor ✅change 🔵discovery ⚖️decision 🚨security_alert 🔐security_note
 Format: ID TIME TYPE TITLE
 Fetch details: get_observations([IDs]) | Search: mem-search skill
 
-Stats: 50 obs (28,977t read) | 857,389t work | 97% savings
+Stats: 50 obs (23,965t read) | 776,181t work | 97% savings
 
 ### Jul 1, 2026
-S160 Audit Stage 10 implementation: verify compilation, tests, audits, and execution safety gates for readiness. (Jul 1 at 1:53 PM)
-S161 Clarification on whether metadata is placeholder/test data requiring re-execution, or real system data; whether the system works now or requires rebuilding. (Jul 1 at 2:44 PM)
 S164 User asked if they should proceed to the next stage or if alternatives are recommended; Claude recommended dogfooding Stages 7-10 on a real project before building Stage 11 (Jul 1 at 2:51 PM)
 S165 Stage 7→10 dogfood execution plan review and real-project integration testing (Jul 1 at 3:03 PM)
 S169 Stage 11 dogfood testing validation completed; ready to confirm Stage 12 next steps (Jul 1 at 3:13 PM)
 S173 Design Stage 12 implementation plan for controlled execution windows and limited retry policy, layered on Stage 11 orchestration (Jul 1 at 3:49 PM)
 S175 Complete implementation, comprehensive testing, and documentation of Stage 12 (Execution Windows & Retry Policy) for the loop-engineering orchestration framework (Jul 1 at 6:52 PM)
-1902 7:27p 🔵 Stage 12 dogfood test completed successfully: both passes OK
-1903 7:28p 🔵 Stage 12 implementation complete: 8 files modified, 20 new files added
 S178 Complete Stage 13 operator-driven rollback restoration implementation, validation, and integration with documentation and test infrastructure (Jul 1 at 7:28 PM)
-1907 7:42p 🟣 Stage 12 Complete — Execution Windows & Retry Policy
-1911 7:43p 🔵 Stage 13 Foundation: Precise Architecture of Stages 10–12 Rollback/Snapshot Machinery
-1913 7:50p 🔵 Stage 10–12 Rollback/Snapshot Architecture: Complete Inventory for Stage 13 Implementation
-1914 7:56p 🔵 Stage 11 dogfood testing completed with fail-closed safety validation
-1915 " 🔵 Stage 12 architecture: Multi-layer fail-closed gating for operator-driven orchestration advancement
-1916 7:57p 🔵 Stage 12.7-12.8: Window & Retry reporting and runtime audit systems
-1917 7:58p 🔵 Stage 12 CLI integration and operator workflow documented in agent handoff
-1918 " 🔵 Execution outcomes track rollback restores; restore requires explicit confirmation
-1919 8:02p 🔵 Stage 11 orchestration dogfood testing validated successfully
-1920 8:03p ⚖️ Stage 13 implementation plan designed: controlled operator-driven rollback restoration
-1921 8:04p ✅ Stage 13 implementation plan documented in persistent artifact
 1922 8:07p 🔵 Stage 11 orchestration safety controls validated end-to-end
 1923 8:08p ⚖️ Stage 13 architecture designed: operator-driven rollback restoration with preview-first invariant
 1924 " ✅ Stage 13 implementation sequenced into 8 atomic tasks; Stage 10 foundation verified
@@ -342,6 +327,7 @@ S178 Complete Stage 13 operator-driven rollback restoration implementation, vali
 S179 Stage 13 operator-driven rollback restoration implementation — complete audit-passing feature with preview-first gate and fail-closed semantics ready for Stage 14 (Jul 1 at 8:30 PM)
 1984 8:32p ⚖️ Stage 13 Plan: Controlled Operator-Driven Rollback Restoration Architecture
 1985 8:42p 🟣 Stage 13 operator-driven rollback restoration implementation complete with preview-first gate and fail-closed semantics
+S180 Implement Stage 14 Multi-Run Orchestration Sessions: session coordination layer that groups Stage 11/12 runs without introducing an executor, with readiness inspection, deterministic advancement planner, advisory gates, and recovery guidance (Jul 1 at 8:44 PM)
 1986 8:50p 🔵 Stage 14 baseline repository state confirmed
 1987 8:51p 🔵 Stage 13 restoration audit mechanisms reviewed for Stage 14 design
 1988 8:53p 🔵 Full regression test suite passes; run status semantics and Stage 11-12 documentation patterns reviewed
@@ -360,15 +346,29 @@ S179 Stage 13 operator-driven rollback restoration implementation — complete a
 2030 9:15p 🔵 Stage 14 dogfood test assertion corrected; two-pass verification now complete
 2031 " 🔵 Stage 14 multi-run orchestration sessions dogfood verification complete: both passes PASS
 2032 " 🔵 Stage 14 implementation complete: 8 modified files + 17 new Stage 14 modules
-S180 Implement Stage 14 Multi-Run Orchestration Sessions: session coordination layer that groups Stage 11/12 runs without introducing an executor, with readiness inspection, deterministic advancement planner, advisory gates, and recovery guidance (Jul 1 at 9:16 PM)
-**Investigated**: Stage 14 requirements from contract (AGENTS.md), test scenarios covering metadata-only operations and controlled execution with recovery flow, integration points with Stages 10-13, database schema for sessions/gates/advancements, dogfood test design
+S181 User asked how many more stages until the project is complete and ready for production. Claude analyzed the infinite stage-generation loop and recommended a practical path to production readiness. (Jul 1 at 9:16 PM)
+2033 9:24p 🟣 Stage 14: Multi-run session lifecycle and governance system
+2034 " 🔵 Stage 14 design deviation: recovery-needed refusal precedes delegation
+2035 " 🟣 Stage 14 audit framework: runtime audits with graceful degradation
+2036 " 🟣 Stage 14 verification: 532 passing tests with full dogfood validation
+2037 9:31p 🔵 Stage 14 audit layer has two critical coverage gaps allowing invalid metadata and protected content
+2038 " ✅ Added MARKER_SCAN_TABLES constant to enumerate all Stage 14 report tables for protected-content audit
+2039 9:32p 🔴 Fixed Stage 14 advancement audit to validate complete metadata linkage with Stage 12 rows
+2040 " 🔴 Fixed protected-content audit to scan all Stage 14 report and audit tables
+2041 " ✅ Added regression tests for P1 advancement linkage metadata validation
+2042 " ✅ Added regression tests for P2 protected-content audit coverage across all Stage 14 report tables
+2044 " 🔵 P2 fix causes audit to BLOCK on missing report tables instead of reporting FAIL
+2045 9:33p ✅ Fixed test regression and documented expected behavior for missing scanned report tables
+2048 9:35p 🔵 Adversarial verification confirms audit gaps are fixed; fabricated bad metadata now correctly fails
+S182 Fix two Stage 14 audit coverage gaps that allowed invalid metadata and undetected protected content to pass final audit verification (Jul 1 at 9:35 PM)
+**Investigated**: Reviewed the original audit findings that identified P1 (mismatched session advancement metadata not validated) and P2 (protected-content audit scanning only one of six Stage 14 report tables). Reproduced both scenarios in temporary database to confirm the gaps existed. Examined the existing _check_advancements_reference_stage12 and _check_reports_no_protected_markers methods to understand their limitations.
 
-**Learned**: Session coordination can be purely advisory metadata (gates don't override per-step gates); deterministic planner refuses execution while recovery needed, blocking unsafe advancement; recovery-needed refusal raises before delegation, so no advancement row recorded (only Stage 12 delegation refusals recorded as `refused` rows); runtime audit can verify module source for safety constraints (no subprocess import, no direct terminal/model calls)
+**Learned**: P1 gap: the advancement audit only checked for row existence (gated_advancement_id IS NULL) but did not validate that run_id, run_step_id, attempt_id, and status matched between Stage 14 and Stage 12 rows — allowing fabricated mismatched metadata to pass. P2 gap: protected-content scanning relied on database.list_multi_run_session_reports() which only covered multi_run_session_reports, leaving readiness_reports, planner_reports, recovery_reports, and audit tables unscanned. Missing scanned tables in the new implementation cause sqlite3.Error and BLOCK (not FAIL), requiring test adjustments to distinguish between required-table-missing (FAIL) and scanned-table-missing (BLOCK) scenarios.
 
-**Completed**: Implemented nine Stage 14 modules (multi_run_sessions, multi_run_session_gates, multi_run_readiness, multi_run_planner, multi_run_advancement, multi_run_recovery, multi_run_reports, multi_run_session_audit, cross_project_stage14_audit); eight test modules; updated .gitignore, AGENTS.md (contract), HANDOFF.md (portable handoff), README.md (documentation), agent_handoff.py (handoff verification), database.py (schema), main.py (CLI), test_agent_handoff.py (handoff tests); verified with 532 tests passing, dogfood two-pass complete (metadata-only pass 1 verified zero execution; controlled execution pass 2 verified one-step advancement, blocking, recovery prevention, manual recovery, retry advancement, all audits PASS with stage 15 ready True); 25 changed/new files ready for commit
+**Completed**: Fixed _check_advancements_reference_stage12 to validate all five fields (id, run_id, run_step_id, attempt_id, status) between Stage 14 and Stage 12 rows using null-safe IS NOT comparisons. Added MARKER_SCAN_TABLES constant listing all six scanned tables. Refactored _check_reports_no_protected_markers to iterate through MARKER_SCAN_TABLES with per-table hit counting and reporting. Added six regression tests: test_matching_advancement_linkage_passes, test_mismatched_advancement_linkage_fails (with per-field subtests), test_protected_marker_in_readiness_report_fails, test_protected_marker_in_planner_report_fails, test_protected_marker_in_recovery_report_fails, and test_missing_scanned_report_table_degrades_to_blocked. Fixed test_audit_fails_when_required_table_missing to drop multi_run_session_events instead of multi_run_recovery_reports. Verified all changes with full test suite (538 tests pass), hotfix audit (38/38 checks), and adversarial scenarios (both P1 and P2 now correctly fail).
 
-**Next Steps**: Ready for user to commit as `stage 14`; all work complete and verified. No further changes needed unless user requests adjustments before commit
+**Next Steps**: Stage 14 audit fixes are complete and fully verified. All 538 tests pass, 67 Stage 14 and handoff tests pass, adversarial scenarios confirm the fixes work, and the system is commit-ready. No active work remaining in this session — waiting for commit decision.
 
 
-Access 857k tokens of past work via get_observations([IDs]) or mem-search skill.
+Access 776k tokens of past work via get_observations([IDs]) or mem-search skill.
 </claude-mem-context>

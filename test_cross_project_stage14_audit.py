@@ -27,10 +27,17 @@ class CrossProjectStage14AuditTests(unittest.TestCase):
         self.assertEqual(names["no_new_executor"], "PASS")
 
     def test_audit_fails_when_required_table_missing(self):
-        self.conn.execute("DROP TABLE multi_run_recovery_reports")
+        self.conn.execute("DROP TABLE multi_run_session_events")
         self.conn.commit()
         report = self.engine.build_report()
         self.assertEqual(report.overall_status, "FAIL")
+        self.assertFalse(report.stage15_readiness["ready"])
+
+    def test_missing_scanned_report_table_degrades_to_blocked(self):
+        self.conn.execute("DROP TABLE multi_run_recovery_reports")
+        self.conn.commit()
+        report = self.engine.build_report()
+        self.assertEqual(report.overall_status, "BLOCKED")
         self.assertFalse(report.stage15_readiness["ready"])
 
     def test_fabricated_session_advancement_fails(self):

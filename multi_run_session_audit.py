@@ -32,6 +32,14 @@ FORBIDDEN_SOURCE_NEEDLES = (
     "os." + "system(",
 )
 PROTECTED_MARKERS = ("-----BEGIN", "PRIVATE KEY", "id_rsa")
+MARKER_SCAN_TABLES = (
+    "multi_run_readiness_reports",
+    "multi_run_planner_reports",
+    "multi_run_recovery_reports",
+    "multi_run_session_reports",
+    "multi_run_session_audits",
+    "cross_project_stage14_audits",
+)
 
 
 @dataclass
@@ -178,10 +186,15 @@ class MultiRunSessionAuditEngine:
             "SELECT COUNT(*) AS n FROM multi_run_session_advancements a "
             "LEFT JOIN cross_project_gated_advancements g "
             "ON a.gated_advancement_id = g.id "
-            "WHERE a.status != 'refused' AND g.id IS NULL").fetchone()["n"]
+            "WHERE a.status != 'refused' AND (g.id IS NULL "
+            "OR g.run_id IS NOT a.run_id "
+            "OR g.run_step_id IS NOT a.run_step_id "
+            "OR g.attempt_id IS NOT a.attempt_id "
+            "OR g.status IS NOT a.status)").fetchone()["n"]
         return MultiRunSessionAuditCheck(
             "advancements_reference_stage12", "PASS" if bad == 0 else "FAIL",
-            f"session advancements without a Stage 12 gated advancement: {bad}")
+            "session advancements without a matching Stage 12 gated "
+            f"advancement (id, run, step, attempt, status): {bad}")
 
     def _check_refused_advancements(self):
         bad = self.conn.execute(
@@ -194,14 +207,23 @@ class MultiRunSessionAuditEngine:
             f"refused session advancements with execution linkage: {bad}")
 
     def _check_reports_no_protected_markers(self):
-        bad = 0
-        for row in database.list_multi_run_session_reports(self.conn, limit=200):
-            blob = " ".join(str(row[k] or "") for k in row.keys())
-            if any(marker in blob for marker in PROTECTED_MARKERS):
-                bad += 1
+        offenders = []
+        for table in MARKER_SCAN_TABLES:
+            rows = self.conn.execute(
+                f"SELECT * FROM {table} ORDER BY id DESC LIMIT 200").fetchall()
+            hits = 0
+            for row in rows:
+                blob = " ".join(str(row[key] or "") for key in row.keys())
+                if any(marker in blob for marker in PROTECTED_MARKERS):
+                    hits += 1
+            if hits:
+                offenders.append(f"{table}: {hits}")
         return MultiRunSessionAuditCheck(
-            "reports_no_protected_markers", "PASS" if bad == 0 else "FAIL",
-            f"session reports containing protected content markers: {bad}")
+            "reports_no_protected_markers",
+            "PASS" if not offenders else "FAIL",
+            "no protected content markers in any Stage 14 report or audit "
+            "table" if not offenders else
+            f"rows containing protected content markers: {offenders}")
 
     def _check_no_confirmation_reuse(self):
         bad = self.conn.execute(
